@@ -91,14 +91,69 @@ namespace AICon.Routines
                 assemblyName);
         }
 
-        private static ScriptCompileResult Compile(List<KeyValuePair<string, string>> sources, string assemblyName)
+        /// <summary>
+        /// Compiles a bare statement body for the run_code tool — same compiler, same reference set
+        /// (the exact loaded RevitAPI.dll), same accurate #line-mapped error locations as routines get,
+        /// but a DIFFERENT, simpler execution contract: a static
+        /// AIConDynamic.Script.Run(UIApplication, UIDocument, Document) method invoked by reflection,
+        /// not IAiconRoutine — run_code has no saved inputs and nothing to implement an interface for.
+        /// Not cached (unlike CompileRoutine): the code is different almost every call, so there is
+        /// nothing to reuse. Each call still permanently loads one small assembly into the AppDomain —
+        /// true of the CodeDom compiler this replaced too (.NET Framework can't unload either kind).
+        /// </summary>
+        internal static ScriptCompileResult CompileRunCodeBody(string body)
+        {
+            string wrapped = WrapRunCodeBody(body);
+            // alreadyWrapped: true — WrapRunCodeBody already produced a full, valid compilation unit.
+            // Compile()'s own IsFullRoutine/WrapBody logic is Routines-specific (checks for
+            // "IAiconRoutine"), so without this flag it would wrap this text a SECOND time, nesting a
+            // "namespace" declaration inside a method body and failing with a confusing error.
+            return Compile(
+                new List<KeyValuePair<string, string>> { new KeyValuePair<string, string>("run_code.cs", wrapped) },
+                "AiconRunCode_" + Guid.NewGuid().ToString("N"), alreadyWrapped: true);
+        }
+
+        private static string WrapRunCodeBody(string body)
+        {
+            const string header =
+                "using System;\n" +
+                "using System.Collections.Generic;\n" +
+                "using System.Linq;\n" +
+                "using Autodesk.Revit.DB;\n" +
+                "using Autodesk.Revit.DB.Architecture;\n" +
+                "using Autodesk.Revit.DB.Structure;\n" +
+                "using Autodesk.Revit.DB.Mechanical;\n" +
+                "using Autodesk.Revit.DB.Plumbing;\n" +
+                "using Autodesk.Revit.DB.Electrical;\n" +
+                "using Autodesk.Revit.UI;\n" +
+                "\n" +
+                "namespace AIConDynamic\n" +
+                "{\n" +
+                "    public static class Script\n" +
+                "    {\n" +
+                "        public static object Run(UIApplication app, UIDocument uidoc, Document doc)\n" +
+                "        {\n";
+
+            const string footer =
+                "\n        }\n" +
+                "    }\n" +
+                "}\n";
+
+            // Same #line trick as WrapBody below: without it, a compile error in a five-line run_code
+            // call gets reported at its position inside this generated wrapper (line 20-something),
+            // which sent the AI chasing a line that does not exist in what it actually wrote.
+            return header + "#line 1 \"run_code.cs\"\n" + body + "\n#line default\n" + footer;
+        }
+
+        private static ScriptCompileResult Compile(List<KeyValuePair<string, string>> sources, string assemblyName,
+            bool alreadyWrapped = false)
         {
             var result = new ScriptCompileResult();
 
             var trees = new List<SyntaxTree>();
             foreach (KeyValuePair<string, string> s in sources)
             {
-                string text = IsFullRoutine(s.Value) ? s.Value : WrapBody(s.Value);
+                string text = alreadyWrapped || IsFullRoutine(s.Value) ? s.Value : WrapBody(s.Value);
                 // The encoding argument is REQUIRED: emitting a PDB for a tree with no encoding fails
                 // with CS8055, which is a baffling error to hit for an unrelated reason.
                 trees.Add(CSharpSyntaxTree.ParseText(text, ParseOptions, s.Key, Encoding.UTF8));

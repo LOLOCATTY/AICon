@@ -1,5 +1,4 @@
 using System;
-using System.CodeDom.Compiler;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -8,7 +7,6 @@ using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Architecture;
 using Autodesk.Revit.DB.Structure;
 using Autodesk.Revit.UI;
-using Microsoft.CSharp;
 
 namespace AICon
 {
@@ -1665,64 +1663,37 @@ namespace AICon
             if (string.IsNullOrEmpty(code)) throw new InvalidOperationException("'code' is required.");
             bool useTransaction = !(args.ContainsKey("no_transaction") && args["no_transaction"] is bool nt && nt);
 
-            string source =
-                "using System;\n" +
-                "using System.Collections.Generic;\n" +
-                "using System.Linq;\n" +
-                "using Autodesk.Revit.DB;\n" +
-                "using Autodesk.Revit.DB.Architecture;\n" +
-                "using Autodesk.Revit.DB.Structure;\n" +
-                "using Autodesk.Revit.DB.Mechanical;\n" +
-                "using Autodesk.Revit.DB.Plumbing;\n" +
-                "using Autodesk.Revit.DB.Electrical;\n" +
-                "using Autodesk.Revit.UI;\n" +
-                "namespace AIConDynamic {\n" +
-                "  public static class Script {\n" +
-                "    public static object Run(UIApplication app, UIDocument uidoc, Document doc) {\n" +
-                code + "\n" +
-                "    }\n" +
-                "  }\n" +
-                "}\n";
-
-            using (var provider = new CSharpCodeProvider())
+            // Roslyn (same compiler/reference strategy as script Routines, AiconScriptCompiler.cs) —
+            // replaces the old System.CodeDom.Compiler path, which only understood C# 5 and recompiled
+            // against reference-assembly stubs instead of the exact loaded RevitAPI.dll.
+            ScriptCompileResult compiled = AiconScriptCompiler.CompileRunCodeBody(code);
+            if (!compiled.Success)
             {
-                var cp = new CompilerParameters { GenerateInMemory = true, TreatWarningsAsErrors = false };
-                cp.ReferencedAssemblies.Add("System.dll");
-                cp.ReferencedAssemblies.Add("System.Core.dll");
-                cp.ReferencedAssemblies.Add("System.Xml.dll");
-                cp.ReferencedAssemblies.Add(typeof(Document).Assembly.Location);       // RevitAPI
-                cp.ReferencedAssemblies.Add(typeof(UIApplication).Assembly.Location);  // RevitAPIUI
-
-                CompilerResults results = provider.CompileAssemblyFromSource(cp, source);
-                if (results.Errors.HasErrors)
-                {
-                    var sb = new StringBuilder("C# compile errors (note: compiler supports C# 5 — no string interpolation ($\"\"), no ?. operator, no 'out var'):\n");
-                    foreach (CompilerError err in results.Errors)
-                        if (!err.IsWarning)
-                            sb.AppendLine("line " + Math.Max(1, err.Line - 13) + ": " + err.ErrorText);
-                    throw new InvalidOperationException(sb.ToString());
-                }
-
-                var method = results.CompiledAssembly.GetType("AIConDynamic.Script").GetMethod("Run");
-                UIDocument uidoc = app.ActiveUIDocument;
-
-                Func<object> invoke = () =>
-                {
-                    try { return method.Invoke(null, new object[] { app, uidoc, doc }); }
-                    catch (System.Reflection.TargetInvocationException tie)
-                    {
-                        throw new InvalidOperationException("Code threw: " + (tie.InnerException != null ? tie.InnerException.Message : tie.Message));
-                    }
-                };
-
-                object result = useTransaction
-                    ? InTransaction(doc, "AICon: run_code", invoke)
-                    : invoke();
-
-                // Make sure whatever came back can survive JSON serialization.
-                try { Json.Serialize(result); return result; }
-                catch { return result != null ? result.ToString() : null; }
+                var sb = new StringBuilder("C# compile errors:\n");
+                foreach (ScriptDiagnostic err in compiled.Errors.Take(25))
+                    sb.AppendLine(err.ToString());
+                throw new InvalidOperationException(sb.ToString());
             }
+
+            var method = compiled.Assembly.GetType("AIConDynamic.Script").GetMethod("Run");
+            UIDocument uidoc = app.ActiveUIDocument;
+
+            Func<object> invoke = () =>
+            {
+                try { return method.Invoke(null, new object[] { app, uidoc, doc }); }
+                catch (System.Reflection.TargetInvocationException tie)
+                {
+                    throw new InvalidOperationException("Code threw: " + (tie.InnerException != null ? tie.InnerException.Message : tie.Message));
+                }
+            };
+
+            object result = useTransaction
+                ? InTransaction(doc, "AICon: run_code", invoke)
+                : invoke();
+
+            // Make sure whatever came back can survive JSON serialization.
+            try { Json.Serialize(result); return result; }
+            catch { return result != null ? result.ToString() : null; }
         }
     }
 }

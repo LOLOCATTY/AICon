@@ -596,11 +596,11 @@ public static class Tools
             Tool("run_code",
                 "Execute C# code inside Revit for ANYTHING not covered by other tools. The code is the BODY of: object Run(UIApplication app, UIDocument uidoc, Document doc) — it must end with a return statement. " +
                 "Runs inside a transaction automatically (set no_transaction=true for read-only code). " +
-                "IMPORTANT: compiler is C# 5 — NO string interpolation ($\"...\"), NO ?. operator, NO 'out var'; use string.Format and explicit declarations. " +
+                "Compiler is Roslyn (modern C#) — string interpolation ($\"...\"), ?., 'var', pattern matching, LINQ all work normally. " +
                 "Available namespaces: Autodesk.Revit.DB (+Architecture/Structure/Mechanical/Plumbing/Electrical), Autodesk.Revit.UI, System, System.Linq, System.Collections.Generic. " +
                 "Revit internal units are FEET — convert mm/304.8. Return a string/number/Dictionary<string,object>/List<object> describing the result.",
                 new() {
-                    ["code"] = Prop("string", "C# 5 statements; must return object"),
+                    ["code"] = Prop("string", "C# statements; must return object"),
                     ["no_transaction"] = new JsonObject { ["type"] = "boolean", ["description"] = "true = don't wrap in a transaction (read-only code)" }
                 }, new[] { "code" })
         );

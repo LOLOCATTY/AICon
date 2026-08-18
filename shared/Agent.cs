@@ -319,7 +319,7 @@ namespace AICon.Agent
             "more than ~3 things? Put ALL operations into ONE 'batch' call (e.g. 36 create_floor_plan + 36 create_sheet " +
             "+ 36 place_view_on_sheet = one batch). Repeated individual calls are far slower.\n" +
             "For logic batch can't express (loops with computed values, read-then-write), write ONE run_code script " +
-            "(C# 5 executed inside Revit) instead.\n" +
+            "(modern C# via Roslyn, executed inside Revit) instead.\n" +
             "Good first steps: get_project_info, then list_categories or list_levels. Use export_view_image to actually " +
             "see the model. Every edit is one undoable Revit transaction.\n" +
             "Always confirm with the user before deleting elements or running destructive code. When you have completed " +

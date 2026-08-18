@@ -141,7 +141,7 @@ while ((line = await stdin.ReadLineAsync()) != null)
                         "For logic batch can't express (loops with computed values, reading then writing), write ONE run_code script instead. " +
                         "Good first steps: get_project_info, then list_categories or list_levels. " +
                         "Use export_view_image to actually SEE the model, and select/show/isolate/color tools to point things out to the user. " +
-                        "If no dedicated tool fits, use run_code (C# 5 inside Revit) — it can do anything the Revit API can. " +
+                        "If no dedicated tool fits, use run_code (modern C# via Roslyn, inside Revit) — it can do anything the Revit API can. " +
                         "Every edit (a batch counts as one) is one undoable Revit transaction. " +
                         "Confirm with the user before deleting elements or running destructive code."
                 });
