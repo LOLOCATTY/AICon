@@ -1,0 +1,24 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>AIConServer</AssemblyName>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <Version>2.1.2</Version>
+    <Product>AICon</Product>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Single source of truth for the tool catalogue, shared with the agent host. -->
+    <Compile Include="..\shared\ToolRegistry.cs" />
+    <!-- Reads the bridge auth token the add-in requires on every call — shared/BridgeToken.cs so the
+         agent host reads the exact same file the same way. -->
+    <Compile Include="..\shared\BridgeToken.cs" />
+  </ItemGroup>
+
+</Project>
+
+

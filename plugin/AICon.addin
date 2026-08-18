@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RevitAddIns>
+  <AddIn Type="Application">
+    <Name>AICon</Name>
+    <Assembly>AICon\AICon.dll</Assembly>
+    <AddInId>e58c1a7d-4b2f-4e9a-8c3d-6f0a9b1c2d3e</AddInId>
+    <FullClassName>AICon.App</FullClassName>
+    <VendorId>AICN</VendorId>
+    <VendorDescription>AICon - AI connection for Autodesk Revit</VendorDescription>
+  </AddIn>
+</RevitAddIns>

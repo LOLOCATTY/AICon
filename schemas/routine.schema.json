@@ -1,0 +1,151 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://aicon.local/schemas/routine.schema.json",
+  "title": "AICon Routine",
+  "description": "A saved AICon routine: a reusable capability that appears as a real button in Revit. Two kinds share this one file format so a 'composed' routine written today keeps loading unchanged after the scripting layer lands.",
+  "type": "object",
+  "required": ["schemaVersion", "id", "name", "kind"],
+  "additionalProperties": false,
+
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Format version. AICon refuses to load a routine whose schemaVersion it does not understand rather than guessing."
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,63}$",
+      "description": "Stable identity, lowercase kebab-case. This is what makes saving idempotent: saving twice with the same id updates in place instead of creating an orphan folder. Also the folder name."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-facing name, shown in the routine browser."
+    },
+    "description": {
+      "type": "string",
+      "description": "What it does and when to use it. Shown as the button tooltip and given to the AI when it lists routines."
+    },
+    "kind": {
+      "enum": ["composed", "script"],
+      "description": "'composed' = an ordered list of existing aicon: tool calls (no compilation, always available). 'script' = C# in sibling .cs files, compiled at load time (needs code execution enabled)."
+    },
+
+    "ribbon": {
+      "type": "object",
+      "description": "Where the button appears. Omit entirely for a routine that should only be reachable from the routine browser or from the AI.",
+      "additionalProperties": false,
+      "properties": {
+        "panel": { "type": "string", "default": "Routines", "description": "Ribbon panel name inside the AICon tab." },
+        "buttonText": { "type": "string", "description": "Button caption. Use \\n to wrap onto two lines. Defaults to 'name'." },
+        "tooltip": { "type": "string", "description": "Defaults to 'description'." },
+        "icon": { "type": "string", "description": "PNG filename relative to the routine folder (32px). Falls back to AICon's generic routine icon." }
+      }
+    },
+
+    "inputs": {
+      "type": "array",
+      "description": "What the user (or the AI) must supply. AICon generates BOTH the WPF form and the MCP input schema from this single list — never write a form by hand.",
+      "items": {
+        "type": "object",
+        "required": ["name", "type"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+            "description": "Referenced in steps as {{input.<name>}}."
+          },
+          "label": { "type": "string", "description": "Field caption in the form. Defaults to 'name'." },
+          "description": { "type": "string", "description": "Hint under the field; also the property description in the MCP schema." },
+          "type": {
+            "enum": ["string", "number", "integer", "boolean", "enum", "stringArray", "elementId"],
+            "description": "'enum' renders a combo box (see 'options'). 'elementId' renders a text box plus a Pick-in-model button. 'stringArray' renders one-per-line text."
+          },
+          "options": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Required when type is 'enum'."
+          },
+          "required": { "type": "boolean", "default": true },
+          "default": { "description": "Pre-filled value. Any JSON type matching 'type'." }
+        }
+      }
+    },
+
+    "readOnly": {
+      "type": "boolean",
+      "default": false,
+      "description": "True when the routine only reads the model. Surfaced to MCP clients as readOnlyHint so an agent can treat it as safe."
+    },
+    "destructive": {
+      "type": "boolean",
+      "default": false,
+      "description": "True when the routine deletes or overwrites. Surfaced as destructiveHint; AICon also asks the user to confirm before running it from a button."
+    },
+
+    "author": { "type": "string" },
+    "created": { "type": "string", "format": "date-time" },
+    "modified": { "type": "string", "format": "date-time" },
+
+    "steps": {
+      "type": "array",
+      "description": "REQUIRED when kind is 'composed'. Executed in order inside ONE Revit transaction group — the whole routine commits or rolls back together, so a single Ctrl+Z undoes it.",
+      "items": {
+        "type": "object",
+        "required": ["tool"],
+        "additionalProperties": false,
+        "properties": {
+          "tool": { "type": "string", "description": "An aicon: tool name, e.g. 'create_sheet'." },
+          "args": {
+            "type": "object",
+            "description": "Arguments for the tool. Any string value may contain placeholders: {{input.<name>}} for a routine input, {{steps.<saveResultAs>.<field>}} for a value returned by an earlier step.",
+            "additionalProperties": true
+          },
+          "saveResultAs": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+            "description": "Names this step's result so later steps can read it, e.g. saveResultAs 'sheet' then {{steps.sheet.id}}."
+          },
+          "continueOnError": {
+            "type": "boolean",
+            "default": false,
+            "description": "When true a failing step is recorded and the routine carries on. Default is all-or-nothing."
+          },
+          "comment": { "type": "string", "description": "Why this step exists. Ignored at run time." }
+        }
+      }
+    },
+
+    "script": {
+      "type": "object",
+      "description": "REQUIRED when kind is 'script'. C# source ALWAYS lives in sibling .cs files — never inline in this JSON.",
+      "required": ["files"],
+      "additionalProperties": false,
+      "properties": {
+        "files": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" },
+          "description": "Source filenames relative to the routine folder, compiled together into one assembly."
+        },
+        "entry": {
+          "type": "string",
+          "description": "Optional class name to run when several are present. Defaults to the single class found."
+        }
+      }
+    }
+  },
+
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "const": "composed" } }, "required": ["kind"] },
+      "then": { "required": ["steps"] }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "script" } }, "required": ["kind"] },
+      "then": { "required": ["script"] }
+    }
+  ]
+}

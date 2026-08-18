@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "id": "thin-wall-audit",
+  "name": "Thin Wall Audit",
+  "description": "Finds every wall thinner than a given thickness and reports them grouped by type. Read-only — it never changes the model.",
+  "kind": "script",
+
+  "ribbon": {
+    "panel": "Routines",
+    "buttonText": "Thin Wall\nAudit",
+    "tooltip": "List walls below a thickness threshold"
+  },
+
+  "inputs": [
+    {
+      "name": "maxThicknessMm",
+      "label": "Report walls thinner than (mm)",
+      "type": "number",
+      "required": true,
+      "default": 150,
+      "description": "Walls with a width below this are reported."
+    },
+    {
+      "name": "includeLinks",
+      "label": "Include linked models",
+      "type": "boolean",
+      "required": false,
+      "default": false
+    }
+  ],
+
+  "readOnly": true,
+  "destructive": false,
+  "author": "Hossam Yousef",
+  "created": "2026-08-10T12:00:00Z",
+  "modified": "2026-08-10T12:00:00Z",
+
+  "script": {
+    "files": ["Routine.cs"]
+  }
+}

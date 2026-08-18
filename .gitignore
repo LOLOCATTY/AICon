@@ -1,0 +1,17 @@
+# Build output
+bin/
+obj/
+
+# Packaged releases (built by scripts/build-package.ps1) — large binary zips, not source.
+# Re-buildable from source at any time; keep git for source history, not distributables.
+dist/
+
+# Visual Studio / Rider
+.vs/
+.idea/
+*.user
+*.suo
+
+# OS junk
+Thumbs.db
+desktop.ini

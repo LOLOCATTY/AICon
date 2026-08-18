@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "id": "level-sheet-set",
+  "name": "Level Sheet Set",
+  "description": "Creates a floor plan for a level, puts it on a new sheet, and tags the rooms. The everyday 'one more sheet please' job, as one button.",
+  "kind": "composed",
+
+  "ribbon": {
+    "panel": "Routines",
+    "buttonText": "Level\nSheet",
+    "tooltip": "Plan + sheet + room tags for one level"
+  },
+
+  "inputs": [
+    {
+      "name": "level",
+      "label": "Level",
+      "type": "string",
+      "required": true,
+      "description": "Level name exactly as it appears in the project browser, e.g. 00-GROUND."
+    },
+    {
+      "name": "sheetNumber",
+      "label": "Sheet number",
+      "type": "string",
+      "required": true,
+      "default": "AR-100",
+      "description": "Must be unique. If it already exists AICon reuses that sheet instead of making a duplicate."
+    },
+    {
+      "name": "tagRooms",
+      "label": "Tag the rooms",
+      "type": "boolean",
+      "required": false,
+      "default": true
+    }
+  ],
+
+  "readOnly": false,
+  "destructive": false,
+  "author": "Hossam Yousef",
+  "created": "2026-08-10T12:00:00Z",
+  "modified": "2026-08-10T12:00:00Z",
+
+  "steps": [
+    {
+      "tool": "create_floor_plan",
+      "args": { "level": "{{input.level}}", "name": "PLAN - {{input.level}}" },
+      "saveResultAs": "plan",
+      "comment": "The new view. Its id is reused by the next two steps."
+    },
+    {
+      "tool": "create_sheet",
+      "args": { "number": "{{input.sheetNumber}}", "name": "PLAN - {{input.level}}" },
+      "saveResultAs": "sheet"
+    },
+    {
+      "tool": "place_view_on_sheet",
+      "args": { "view_id": "{{steps.plan.id}}", "sheet_id": "{{steps.sheet.id}}" },
+      "comment": "No location given, so AICon centres it in the title block."
+    },
+    {
+      "tool": "tag_elements",
+      "args": { "view_id": "{{steps.plan.id}}", "category": "Rooms" },
+      "continueOnError": true,
+      "comment": "Rooms may not be placed yet at this stage — that must not fail the whole routine."
+    }
+  ]
+}
