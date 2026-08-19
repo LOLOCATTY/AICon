@@ -81,7 +81,7 @@ namespace AICon.Routines
         public ElementId Element(string name)
         {
             double n = Number(name, -1);
-            return n <= 0 ? ElementId.InvalidElementId : new ElementId((int)n);
+            return n <= 0 ? ElementId.InvalidElementId : AICon.ElementIdCompat.FromInt((int)n);
         }
     }
 

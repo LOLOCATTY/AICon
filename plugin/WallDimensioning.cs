@@ -30,8 +30,8 @@ namespace AICon
             if (!aId.HasValue || !bId.HasValue)
                 throw new InvalidOperationException("'wall_a_id' and 'wall_b_id' are required.");
 
-            Wall wallA = doc.GetElement(new ElementId(aId.Value)) as Wall;
-            Wall wallB = doc.GetElement(new ElementId(bId.Value)) as Wall;
+            Wall wallA = doc.GetElement(ElementIdCompat.FromInt(aId.Value)) as Wall;
+            Wall wallB = doc.GetElement(ElementIdCompat.FromInt(bId.Value)) as Wall;
             if (wallA == null || wallB == null)
                 throw new InvalidOperationException("'wall_a_id'/'wall_b_id' must both be existing walls.");
 
@@ -61,7 +61,7 @@ namespace AICon
 
             var singleResult = new Dictionary<string, object>
             {
-                { "id", made.Id.IntegerValue },
+                { "id", made.Id.ToInt() },
                 { "value_mm", made.Value.HasValue ? (object)Math.Round(FtToMm(made.Value.Value), 1) : null },
                 { "view", view.Name },
                 { "wall_a", wallA.Name },
@@ -135,7 +135,7 @@ namespace AICon
                             });
 
                         var aiChoice = AIConDecisionClient.DecideDimensionFaces(
-                            wallA.Id.IntegerValue, wallB.Id.IntegerValue, pairs);
+                            wallA.Id.ToInt(), wallB.Id.ToInt(), pairs);
                         if (aiChoice != null && aiChoice.Confidence >= 0.5 && aiChoice.ChosenPairIndex + 1 < hits.Count)
                         {
                             chosenBIndex = aiChoice.ChosenPairIndex + 1;

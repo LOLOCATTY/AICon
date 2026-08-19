@@ -233,7 +233,7 @@ namespace AICon
                 new FilteredElementCollector(_doc).OfClass(typeof(View)).Cast<View>()
                     .Where(v => v.IsTemplate && v.ViewType == wantType)
                     .OrderBy(v => v.Name)
-                    .Select(v => new Option { TemplateId = v.Id.IntegerValue, Label = v.Name }));
+                    .Select(v => new Option { TemplateId = v.Id.ToInt(), Label = v.Name }));
             var templateBox = new ComboBox { Margin = new Thickness(4), ItemsSource = templateOptions, Height = 24, VerticalAlignment = VerticalAlignment.Center };
             templateBox.SelectedIndex = profile.ViewTemplateId.HasValue
                 ? Math.Max(0, templateOptions.FindIndex(o => o.TemplateId == profile.ViewTemplateId.Value))
@@ -354,7 +354,7 @@ namespace AICon
                 string text = (strip.Box.Text ?? "").Trim();
                 // Blank (or unparseable) means "keep detecting automatically" — store nothing.
                 if (text.Length > 0 && double.TryParse(text, out mm) && mm > 0)
-                    settings.TitleBlockStripMm[strip.TypeId.IntegerValue.ToString()] = mm;
+                    settings.TitleBlockStripMm[strip.TypeId.ToInt().ToString()] = mm;
             }
             settings.Save();
 
@@ -407,7 +407,7 @@ namespace AICon
                     TextTrimming = TextTrimming.CharacterEllipsis,
                     VerticalAlignment = VerticalAlignment.Center
                 });
-                double saved = settings.StripOverrideMm(type.Id.IntegerValue);
+                double saved = settings.StripOverrideMm(type.Id.ToInt());
                 var box = new TextBox
                 {
                     Text = saved > 0 ? saved.ToString("0.#") : "",

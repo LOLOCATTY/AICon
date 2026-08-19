@@ -55,7 +55,7 @@ namespace AICon
             return new FilteredElementCollector(doc).OfCategory(tagCategory).WhereElementIsElementType()
                 .Cast<FamilySymbol>()
                 .OrderBy(s => s.Family.Name).ThenBy(s => s.Name)
-                .Select(s => (s.Id.IntegerValue, s.Family.Name + " : " + s.Name))
+                .Select(s => (s.Id.ToInt(), s.Family.Name + " : " + s.Name))
                 .ToList();
         }
     }

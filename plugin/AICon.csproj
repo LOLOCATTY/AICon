@@ -13,7 +13,10 @@
     <Product>AICon</Product>
     <Company>Hossam Yousef</Company>
     <Description>AICon - AI connection for Autodesk Revit. Chat with Claude, Gemini, or a local model to read and edit your model.</Description>
-    <NoWarn>CS0618</NoWarn> <!-- older ElementId API kept intentionally for Revit 2023 compatibility -->
+    <!-- The deprecated ElementId.IntegerValue/ElementId(int) API is used in exactly ONE place now —
+         ElementIdCompat.cs — which is the deliberate net48 side of the Revit 2023/2024 vs 2025+
+         compatibility split (see that file). Nowhere else in the plugin touches it directly. -->
+    <NoWarn>CS0618</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

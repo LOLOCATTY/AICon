@@ -212,7 +212,7 @@ namespace AICon.Routines
                             // Hide this dialog while picking, or it sits on top of the model.
                             Hide();
                             Reference picked = uidoc.Selection.PickObject(ObjectType.Element, "Pick the element for '" + inp.DisplayLabel + "'");
-                            if (picked != null) box.Text = picked.ElementId.IntegerValue.ToString(CultureInfo.InvariantCulture);
+                            if (picked != null) box.Text = picked.ElementId.ToInt().ToString(CultureInfo.InvariantCulture);
                         }
                         catch (Autodesk.Revit.Exceptions.OperationCanceledException) { /* user pressed Esc — normal */ }
                         catch (Exception ex) { TaskDialog.Show("AICon", "Could not pick: " + ex.Message); }

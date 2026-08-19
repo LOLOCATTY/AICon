@@ -108,13 +108,13 @@ namespace AICon
                 .WhereElementIsNotElementType().OrderBy(e => e.Name).ToList();
             if (scopeBoxes.Count > 0)
             {
-                var options = scopeBoxes.Select(e => (e.Id.IntegerValue.ToString(), e.Name));
+                var options = scopeBoxes.Select(e => (e.Id.ToInt().ToString(), e.Name));
                 bool cancelled;
                 string chosen = CheckListWindow.PickOne(
                     "AR400 — Shop Drawings", "Crop these views to a scope box? (optional)",
                     options, "(None — no crop)", "Next", out cancelled, ownerHandle);
                 if (cancelled) return Result.Cancelled;   // X/Cancel = stop everything, not "no crop, keep going"
-                if (chosen != null) scopeBox = doc.GetElement(new ElementId(int.Parse(chosen)));
+                if (chosen != null) scopeBox = doc.GetElement(ElementIdCompat.FromInt(int.Parse(chosen)));
             }
 
             // ---- 4) title block ----
@@ -127,13 +127,13 @@ namespace AICon
                 {
                     var fam = e as FamilySymbol;
                     string label = fam != null ? fam.Family.Name + " : " + e.Name : e.Name;
-                    return (e.Id.IntegerValue.ToString(), label);
+                    return (e.Id.ToInt().ToString(), label);
                 });
                 bool cancelled;
                 string chosen = CheckListWindow.PickOne(
                     "AR400 — Shop Drawings", "Select the sheets' title block:", options, "(Project default)", "Next", out cancelled, ownerHandle);
                 if (cancelled) return Result.Cancelled;   // X/Cancel = stop everything, not "project default, keep going"
-                if (chosen != null) titleBlockId = new ElementId(int.Parse(chosen));
+                if (chosen != null) titleBlockId = ElementIdCompat.FromInt(int.Parse(chosen));
             }
 
             // ---- 5) sheet register (Excel, optional) ----
@@ -269,7 +269,7 @@ namespace AICon
                                 takenViews.Add(plan.Name);
 
                                 View template = profile.ViewTemplateId.HasValue
-                                    ? doc.GetElement(new ElementId(profile.ViewTemplateId.Value)) as View
+                                    ? doc.GetElement(ElementIdCompat.FromInt(profile.ViewTemplateId.Value)) as View
                                     : nameTemplate;
                                 if (template != null)
                                 {
@@ -304,15 +304,15 @@ namespace AICon
                                     ["name"] = entry != null && !string.IsNullOrWhiteSpace(entry.Name) ? entry.Name : viewName
                                 };
                                 if (entry != null && !string.IsNullOrWhiteSpace(entry.Number)) sheetArgs["number"] = entry.Number;
-                                if (titleBlockId != ElementId.InvalidElementId) sheetArgs["title_block_type_id"] = titleBlockId.IntegerValue;
+                                if (titleBlockId != ElementId.InvalidElementId) sheetArgs["title_block_type_id"] = titleBlockId.ToInt();
 
                                 var sheetResult = (Dictionary<string, object>)ToolDispatcher.CreateSheet(doc, sheetArgs);
-                                var sheet = doc.GetElement(new ElementId(Convert.ToInt32(sheetResult["id"]))) as ViewSheet;
+                                var sheet = doc.GetElement(ElementIdCompat.FromInt(Convert.ToInt32(sheetResult["id"]))) as ViewSheet;
 
                                 ToolDispatcher.PlaceViewOnSheet(doc, new Dictionary<string, object>
                                 {
-                                    ["view_id"] = plan.Id.IntegerValue,
-                                    ["sheet_id"] = sheet.Id.IntegerValue
+                                    ["view_id"] = plan.Id.ToInt(),
+                                    ["sheet_id"] = sheet.Id.ToInt()
                                 });
 
                                 built.Add(new BuiltSheet
@@ -576,8 +576,8 @@ namespace AICon
                 }
 
                 if (bestPartner == null) continue;
-                string key = Math.Min(a.Id.IntegerValue, bestPartner.Id.IntegerValue) + "-" +
-                             Math.Max(a.Id.IntegerValue, bestPartner.Id.IntegerValue);
+                string key = Math.Min(a.Id.ToInt(), bestPartner.Id.ToInt()) + "-" +
+                             Math.Max(a.Id.ToInt(), bestPartner.Id.ToInt());
                 if (!donePairs.Add(key)) continue;
 
                 try
@@ -614,7 +614,7 @@ namespace AICon
             Element titleBlock = ToolDispatcher.TitleBlockOf(doc, sheet);
             if (titleBlock != null && settings != null)
             {
-                double overrideMm = settings.StripOverrideMm(titleBlock.GetTypeId().IntegerValue);
+                double overrideMm = settings.StripOverrideMm(titleBlock.GetTypeId().ToInt());
                 strip = overrideMm > 0 ? MmToFtLocal(overrideMm)
                                        : ToolDispatcher.DetectTitleBlockStrip(doc, sheet, area);
             }
@@ -719,7 +719,7 @@ namespace AICon
                     {
                         templateName = tpl.Name;
                         templateControlsVisibility = !tpl.GetNonControlledTemplateParameterIds()
-                            .Contains(new ElementId(BuiltInParameter.VIS_GRAPHICS_MODEL));
+                            .Contains(new ElementId(BuiltInParameter.VIS_GRAPHICS_MODEL));   // dedicated overload, unrelated to the int/long ElementId split
                     }
                 }
 
@@ -774,9 +774,9 @@ namespace AICon
                     if (independent == null && roomTag == null) continue;
 
                     if (independent != null)
-                        foreach (ElementId t in GetTaggedIds(independent)) alreadyTagged.Add(t.IntegerValue);
+                        foreach (ElementId t in GetTaggedIds(independent)) alreadyTagged.Add(t.ToInt());
                     else if (roomTag.Room != null)
-                        alreadyTagged.Add(roomTag.Room.Id.IntegerValue);
+                        alreadyTagged.Add(roomTag.Room.Id.ToInt());
 
                     BoundingBoxXYZ bb = existing.get_BoundingBox(view);
                     if (bb != null) occupied.Add(bb);
@@ -791,7 +791,7 @@ namespace AICon
 
             foreach (Element e in elements)
             {
-                if (alreadyTagged.Contains(e.Id.IntegerValue)) continue;
+                if (alreadyTagged.Contains(e.Id.ToInt())) continue;
                 XYZ anchor = AnchorPointFor(e, view);
                 if (anchor == null) continue;
 
@@ -813,7 +813,7 @@ namespace AICon
                             : SpatialElementTagOrientation.Horizontal;
                         if (tagProfile.TagTypeId.HasValue)
                         {
-                            try { roomTag.ChangeTypeId(new ElementId(tagProfile.TagTypeId.Value)); } catch { }
+                            try { roomTag.ChangeTypeId(ElementIdCompat.FromInt(tagProfile.TagTypeId.Value)); } catch { }
                         }
                         tagElement = roomTag;
                     }
@@ -823,7 +823,7 @@ namespace AICon
                             TagMode.TM_ADDBY_CATEGORY, orientation, anchor);
                         if (tagProfile.TagTypeId.HasValue)
                         {
-                            try { tag.ChangeTypeId(new ElementId(tagProfile.TagTypeId.Value)); } catch { }
+                            try { tag.ChangeTypeId(ElementIdCompat.FromInt(tagProfile.TagTypeId.Value)); } catch { }
                         }
                         tagElement = tag;
                     }
@@ -1002,7 +1002,7 @@ namespace AICon
                 if (fields != null) args["fields"] = fields.Cast<object>().ToList();
 
                 var result = (Dictionary<string, object>)ToolDispatcher.CreateSchedule(doc, args);
-                schedule = doc.GetElement(new ElementId(Convert.ToInt32(result["id"]))) as ViewSchedule;
+                schedule = doc.GetElement(ElementIdCompat.FromInt(Convert.ToInt32(result["id"]))) as ViewSchedule;
 
                 // Best-effort: scope the table to this level only. If the API rejects the filter for
                 // any reason, leave the schedule project-wide rather than failing the whole run.

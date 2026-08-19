@@ -30,7 +30,7 @@ namespace AICon
                 if (doc.ActiveView == null) throw new InvalidOperationException("No active view.");
                 return doc.ActiveView;
             }
-            var view = doc.GetElement(new ElementId(viewId.Value)) as View;
+            var view = doc.GetElement(ElementIdCompat.FromInt(viewId.Value)) as View;
             if (view == null) throw new InvalidOperationException("view_id " + viewId.Value + " is not a view. Use list_views.");
             return view;
         }
@@ -44,7 +44,7 @@ namespace AICon
                 .OrderBy(s => s.SheetNumber)
                 .Select(s => (object)new Dictionary<string, object>
                 {
-                    { "id", s.Id.IntegerValue },
+                    { "id", s.Id.ToInt() },
                     { "number", s.SheetNumber },
                     { "name", s.Name },
                     { "views_on_sheet", s.GetAllPlacedViews().Count }
@@ -58,11 +58,11 @@ namespace AICon
             {
                 return new FilteredElementCollector(doc).OfClass(typeof(ViewSchedule)).Cast<ViewSchedule>()
                     .Where(v => !v.IsTemplate)
-                    .Select(v => (object)new Dictionary<string, object> { { "id", v.Id.IntegerValue }, { "name", v.Name } })
+                    .Select(v => (object)new Dictionary<string, object> { { "id", v.Id.ToInt() }, { "name", v.Name } })
                     .ToList();
             }
 
-            var schedule = doc.GetElement(new ElementId(viewId.Value)) as ViewSchedule;
+            var schedule = doc.GetElement(ElementIdCompat.FromInt(viewId.Value)) as ViewSchedule;
             if (schedule == null) throw new InvalidOperationException("view_id " + viewId.Value + " is not a schedule. Call get_schedule_data without arguments to list schedules.");
 
             int maxRows = Json.GetInt(args, "limit") ?? 200;
@@ -174,7 +174,7 @@ namespace AICon
                 {
                     matches.Add(new Dictionary<string, object>
                     {
-                        { "id", e.Id.IntegerValue },
+                        { "id", e.Id.ToInt() },
                         { "name", e.Name },
                         { "value", ParameterValueString(p) }
                     });
@@ -240,12 +240,12 @@ namespace AICon
                 foreach (Element b in hits)
                 {
                     if (b.Id == a.Id) continue;
-                    string pairKey = Math.Min(a.Id.IntegerValue, b.Id.IntegerValue) + "_" + Math.Max(a.Id.IntegerValue, b.Id.IntegerValue);
+                    string pairKey = Math.Min(a.Id.ToInt(), b.Id.ToInt()) + "_" + Math.Max(a.Id.ToInt(), b.Id.ToInt());
                     if (!seen.Add(pairKey)) continue;
                     clashes.Add(new Dictionary<string, object>
                     {
-                        { "element_a", a.Id.IntegerValue }, { "name_a", a.Name },
-                        { "element_b", b.Id.IntegerValue }, { "name_b", b.Name }
+                        { "element_a", a.Id.ToInt() }, { "name_a", a.Name },
+                        { "element_b", b.Id.ToInt() }, { "name_b", b.Name }
                     });
                     if (clashes.Count >= limit)
                         return new Dictionary<string, object>
@@ -285,7 +285,7 @@ namespace AICon
             ViewPlan plan = ViewPlan.Create(doc, GetViewFamilyType(doc, ViewFamily.FloorPlan).Id, level.Id);
             string name = Json.GetString(args, "name");
             if (!string.IsNullOrEmpty(name)) { try { plan.Name = name; } catch { } }
-            return new Dictionary<string, object> { { "id", plan.Id.IntegerValue }, { "name", plan.Name }, { "level", level.Name } };
+            return new Dictionary<string, object> { { "id", plan.Id.ToInt() }, { "name", plan.Name }, { "level", level.Name } };
         }
 
         private static object Create3DView(Document doc, Dictionary<string, object> args)
@@ -293,7 +293,7 @@ namespace AICon
             View3D view = View3D.CreateIsometric(doc, GetViewFamilyType(doc, ViewFamily.ThreeDimensional).Id);
             string name = Json.GetString(args, "name");
             if (!string.IsNullOrEmpty(name)) { try { view.Name = name; } catch { } }
-            return new Dictionary<string, object> { { "id", view.Id.IntegerValue }, { "name", view.Name } };
+            return new Dictionary<string, object> { { "id", view.Id.ToInt() }, { "name", view.Name } };
         }
 
         private static object DuplicateView(Document doc, Dictionary<string, object> args)
@@ -308,7 +308,7 @@ namespace AICon
             var newView = doc.GetElement(newId) as View;
             string name = Json.GetString(args, "name");
             if (!string.IsNullOrEmpty(name)) { try { newView.Name = name; } catch { } }
-            return new Dictionary<string, object> { { "id", newId.IntegerValue }, { "name", newView.Name } };
+            return new Dictionary<string, object> { { "id", newId.ToInt() }, { "name", newView.Name } };
         }
 
         private static object CreateViewTemplate(Document doc, Dictionary<string, object> args)
@@ -339,7 +339,7 @@ namespace AICon
             }
             return new Dictionary<string, object>
             {
-                { "id", template.Id.IntegerValue },
+                { "id", template.Id.ToInt() },
                 { "name", template.Name },
                 { "source_view", source.Name }
             };
@@ -368,7 +368,7 @@ namespace AICon
                 view.SetFilterVisibility(existingFilter.Id, !hide);
                 return new Dictionary<string, object>
                 {
-                    { "filter_id", existingFilter.Id.IntegerValue },
+                    { "filter_id", existingFilter.Id.ToInt() },
                     { "filter_name", existingFilter.Name },
                     { "applied_to", view.Name },
                     { "already_existed", true },
@@ -382,8 +382,8 @@ namespace AICon
             var catIds = new List<ElementId>();
             var catNames = new List<string>();
             if (catList != null && catList.Count > 0)
-                foreach (object c in catList) { var bic = ParseCategory(c == null ? null : c.ToString()); catIds.Add(new ElementId((int)bic)); catNames.Add(c.ToString()); }
-            else { catIds.Add(new ElementId((int)BuiltInCategory.OST_Walls)); catNames.Add("Walls"); }
+                foreach (object c in catList) { var bic = ParseCategory(c == null ? null : c.ToString()); catIds.Add(ElementIdCompat.FromInt((int)bic)); catNames.Add(c.ToString()); }
+            else { catIds.Add(ElementIdCompat.FromInt((int)BuiltInCategory.OST_Walls)); catNames.Add("Walls"); }
 
             // The parameter must be one Revit allows in view filters for these categories; match the
             // request's human name against the filterable set (built-ins via LabelUtils, project params
@@ -396,9 +396,9 @@ namespace AICon
             foreach (ElementId pid in ParameterFilterUtilities.GetFilterableParametersInCommon(doc, catIds))
             {
                 string label = null;
-                if (pid.IntegerValue < 0)
+                if (pid.ToInt() < 0)
                 {
-                    try { label = LabelUtils.GetLabelFor((BuiltInParameter)pid.IntegerValue); } catch { }
+                    try { label = LabelUtils.GetLabelFor((BuiltInParameter)pid.ToInt()); } catch { }
                 }
                 else
                 {
@@ -450,7 +450,7 @@ namespace AICon
 
             return new Dictionary<string, object>
             {
-                { "filter_id", pfe.Id.IntegerValue },
+                { "filter_id", pfe.Id.ToInt() },
                 { "filter_name", pfe.Name },
                 { "applied_to", view.Name },
                 { "is_template", view.IsTemplate },
@@ -493,7 +493,7 @@ namespace AICon
                     .Where(v => v.IsTemplate).ToList();
                 int? tId = Json.GetInt(args, "template_id");
                 string tName = Json.GetString(args, "template_name") ?? Json.GetString(args, "name");
-                if (tId.HasValue) template = doc.GetElement(new ElementId(tId.Value)) as View;
+                if (tId.HasValue) template = doc.GetElement(ElementIdCompat.FromInt(tId.Value)) as View;
                 else if (!string.IsNullOrEmpty(tName))
                 {
                     template = allTemplates.FirstOrDefault(
@@ -521,7 +521,7 @@ namespace AICon
             if (idList != null && idList.Count > 0)
                 foreach (object o in idList)
                 {
-                    var v = doc.GetElement(new ElementId(Json.ToInt(o))) as View;
+                    var v = doc.GetElement(ElementIdCompat.FromInt(Json.ToInt(o))) as View;
                     if (v == null) throw new InvalidOperationException("view_ids contains " + o + " which is not a view.");
                     targets.Add(v);
                 }
@@ -560,7 +560,7 @@ namespace AICon
                 string c = e.Category != null ? e.Category.Name : "(none)";
                 byCat[c] = byCat.TryGetValue(c, out int n) ? n + 1 : 1;
                 if (list.Count < limit)
-                    list.Add(new Dictionary<string, object> { { "id", e.Id.IntegerValue }, { "category", c }, { "name", e.Name } });
+                    list.Add(new Dictionary<string, object> { { "id", e.Id.ToInt() }, { "category", c }, { "name", e.Name } });
             }
             return new Dictionary<string, object>
             {
@@ -575,7 +575,7 @@ namespace AICon
         internal static object CreateSchedule(Document doc, Dictionary<string, object> args)
         {
             BuiltInCategory bic = ParseCategory(Json.GetString(args, "category"));
-            ViewSchedule sched = ViewSchedule.CreateSchedule(doc, new ElementId((int)bic));
+            ViewSchedule sched = ViewSchedule.CreateSchedule(doc, ElementIdCompat.FromInt((int)bic));
             string name = Json.GetString(args, "name");
             if (!string.IsNullOrEmpty(name)) { try { sched.Name = name; } catch { } }
 
@@ -627,7 +627,7 @@ namespace AICon
 
             return new Dictionary<string, object>
             {
-                { "id", sched.Id.IntegerValue },
+                { "id", sched.Id.ToInt() },
                 { "name", sched.Name },
                 { "fields", added }
             };
@@ -669,7 +669,7 @@ namespace AICon
             if (!string.IsNullOrEmpty(name)) { try { section.Name = name; } catch { } }
             return new Dictionary<string, object>
             {
-                { "id", section.Id.IntegerValue },
+                { "id", section.Id.ToInt() },
                 { "name", section.Name },
                 { "length_mm", Math.Round(FtToMm(len), 1) }
             };
@@ -686,7 +686,7 @@ namespace AICon
             var pts = new List<XYZ>();
             foreach (object o in ids)
             {
-                Element e = doc.GetElement(new ElementId(Json.ToInt(o)));
+                Element e = doc.GetElement(ElementIdCompat.FromInt(Json.ToInt(o)));
                 if (e == null) throw new InvalidOperationException("Element " + o + " not found.");
                 refs.Append(new Reference(e));
 
@@ -716,7 +716,7 @@ namespace AICon
                 Dimension dim = doc.Create.NewDimension(view, dimLine, refs);
                 return new Dictionary<string, object>
                 {
-                    { "id", dim.Id.IntegerValue },
+                    { "id", dim.Id.ToInt() },
                     { "segments", ids.Count - 1 },
                     { "view", view.Name }
                 };
@@ -768,7 +768,7 @@ namespace AICon
             if (sheetIds != null)
                 foreach (object o in sheetIds)
                 {
-                    var sheet = doc.GetElement(new ElementId(Json.ToInt(o))) as ViewSheet;
+                    var sheet = doc.GetElement(ElementIdCompat.FromInt(Json.ToInt(o))) as ViewSheet;
                     if (sheet == null) throw new InvalidOperationException(o + " is not a sheet id. Use list_sheets.");
                     var ids = sheet.GetAdditionalRevisionIds();
                     if (!ids.Contains(rev.Id)) { ids.Add(rev.Id); sheet.SetAdditionalRevisionIds(ids); }
@@ -776,7 +776,7 @@ namespace AICon
                 }
             return new Dictionary<string, object>
             {
-                { "id", rev.Id.IntegerValue },
+                { "id", rev.Id.ToInt() },
                 { "sequence", rev.SequenceNumber },
                 { "description", rev.Description ?? "" },
                 { "on_sheets", applied }
@@ -860,9 +860,9 @@ namespace AICon
             if (!string.IsNullOrEmpty(name)) { try { elev.Name = name; } catch { } }
             return new Dictionary<string, object>
             {
-                { "id", elev.Id.IntegerValue },
+                { "id", elev.Id.ToInt() },
                 { "name", elev.Name },
-                { "marker_id", marker.Id.IntegerValue }
+                { "marker_id", marker.Id.ToInt() }
             };
         }
 
@@ -871,8 +871,8 @@ namespace AICon
             var ids = Json.GetList(args, "element_ids");
             if (ids == null || ids.Count != 2)
                 throw new InvalidOperationException("'element_ids' must contain exactly 2 element ids.");
-            Element a = doc.GetElement(new ElementId(Json.ToInt(ids[0])));
-            Element b = doc.GetElement(new ElementId(Json.ToInt(ids[1])));
+            Element a = doc.GetElement(ElementIdCompat.FromInt(Json.ToInt(ids[0])));
+            Element b = doc.GetElement(ElementIdCompat.FromInt(Json.ToInt(ids[1])));
             if (a == null || b == null) throw new InvalidOperationException("Element not found — check the ids.");
             BoundingBoxXYZ ba = a.get_BoundingBox(null);
             BoundingBoxXYZ bb = b.get_BoundingBox(null);
@@ -915,7 +915,7 @@ namespace AICon
             if (existing != null)
                 return new Dictionary<string, object>
                 {
-                    { "id", existing.Id.IntegerValue },
+                    { "id", existing.Id.ToInt() },
                     { "number", existing.SheetNumber },
                     { "name", existing.Name },
                     { "already_existed", true },
@@ -925,7 +925,7 @@ namespace AICon
 
             ElementId titleBlockId = ElementId.InvalidElementId;
             int? tbId = Json.GetInt(args, "title_block_type_id");
-            if (tbId.HasValue) titleBlockId = new ElementId(tbId.Value);
+            if (tbId.HasValue) titleBlockId = ElementIdCompat.FromInt(tbId.Value);
             else
             {
                 var tb = new FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_TitleBlocks)
@@ -938,7 +938,7 @@ namespace AICon
             if (!string.IsNullOrEmpty(name)) { try { sheet.Name = name; } catch { } }
             return new Dictionary<string, object>
             {
-                { "id", sheet.Id.IntegerValue },
+                { "id", sheet.Id.ToInt() },
                 { "number", sheet.SheetNumber },
                 { "name", sheet.Name }
             };
@@ -950,8 +950,8 @@ namespace AICon
             int? sheetId = Json.GetInt(args, "sheet_id");
             if (!viewId.HasValue || !sheetId.HasValue)
                 throw new InvalidOperationException("'view_id' and 'sheet_id' are required.");
-            var view = doc.GetElement(new ElementId(viewId.Value)) as View;
-            var sheet = doc.GetElement(new ElementId(sheetId.Value)) as ViewSheet;
+            var view = doc.GetElement(ElementIdCompat.FromInt(viewId.Value)) as View;
+            var sheet = doc.GetElement(ElementIdCompat.FromInt(sheetId.Value)) as ViewSheet;
             if (view == null || sheet == null)
                 throw new InvalidOperationException("Invalid view_id or sheet_id.");
             if (!Viewport.CanAddViewToSheet(doc, sheet.Id, view.Id))
@@ -963,7 +963,7 @@ namespace AICon
             Viewport vp = Viewport.Create(doc, sheet.Id, view.Id, center);
             return new Dictionary<string, object>
             {
-                { "viewport_id", vp.Id.IntegerValue },
+                { "viewport_id", vp.Id.ToInt() },
                 { "sheet", sheet.SheetNumber + " - " + sheet.Name },
                 { "view", view.Name }
             };
@@ -1224,7 +1224,7 @@ namespace AICon
                 { "colored", matched.Count },
                 { "view", view.Name },
                 { "rgb", new List<object> { rgb[0], rgb[1], rgb[2] } },
-                { "element_ids", matched.Take(200).Select(i => (object)i.IntegerValue).ToList() }
+                { "element_ids", matched.Take(200).Select(i => (object)i.ToInt()).ToList() }
             };
         }
 
@@ -1352,11 +1352,11 @@ namespace AICon
                         BoundingBoxXYZ bb = e.get_BoundingBox(view);
                         if (bb != null) pos = (bb.Min + bb.Max) / 2;
                     }
-                    if (pos == null) { errors.Add(id.IntegerValue + ": no location"); continue; }
+                    if (pos == null) { errors.Add(id.ToInt() + ": no location"); continue; }
                     IndependentTag.Create(doc, view.Id, new Reference(e), false, TagMode.TM_ADDBY_CATEGORY, TagOrientation.Horizontal, pos);
                     tagged++;
                 }
-                catch (Exception ex) { errors.Add(id.IntegerValue + ": " + ex.Message); }
+                catch (Exception ex) { errors.Add(id.ToInt() + ": " + ex.Message); }
             }
             var result = new Dictionary<string, object> { { "tagged", tagged }, { "view", view.Name } };
             if (errors.Count > 0) result["errors"] = errors.Take(10).Cast<object>().ToList();
@@ -1379,7 +1379,7 @@ namespace AICon
             bool placed = room.Area > 1e-9;
             return new Dictionary<string, object>
             {
-                { "id", room.Id.IntegerValue },
+                { "id", room.Id.ToInt() },
                 { "level", level.Name },
                 { "area_m2", Math.Round(room.Area * SqFtToSqM, 2) },
                 { "enclosed", placed },
@@ -1413,7 +1413,7 @@ namespace AICon
             ceiling.get_Parameter(BuiltInParameter.CEILING_HEIGHTABOVELEVEL_PARAM)?.Set(offset);
             return new Dictionary<string, object>
             {
-                { "id", ceiling.Id.IntegerValue },
+                { "id", ceiling.Id.ToInt() },
                 { "level", level.Name },
                 { "height_offset_mm", Math.Round(FtToMm(offset), 1) }
             };
@@ -1433,7 +1433,7 @@ namespace AICon
 
             FamilySymbol symbol = null;
             int? typeId = Json.GetInt(args, "type_id");
-            if (typeId.HasValue) symbol = doc.GetElement(new ElementId(typeId.Value)) as FamilySymbol;
+            if (typeId.HasValue) symbol = doc.GetElement(ElementIdCompat.FromInt(typeId.Value)) as FamilySymbol;
             else symbol = FirstSymbolOf(doc, BuiltInCategory.OST_StructuralColumns) ?? FirstSymbolOf(doc, BuiltInCategory.OST_Columns);
             if (symbol == null)
                 throw new InvalidOperationException("No column family type found. Load a column family or pass type_id (see list_element_types with category StructuralColumns or Columns).");
@@ -1445,7 +1445,7 @@ namespace AICon
             column.get_Parameter(BuiltInParameter.FAMILY_TOP_LEVEL_OFFSET_PARAM)?.Set(height);
             return new Dictionary<string, object>
             {
-                { "id", column.Id.IntegerValue },
+                { "id", column.Id.ToInt() },
                 { "type", symbol.Name },
                 { "level", level.Name },
                 { "height_mm", Math.Round(FtToMm(height), 1) }
@@ -1463,7 +1463,7 @@ namespace AICon
 
             FamilySymbol symbol = null;
             int? typeId = Json.GetInt(args, "type_id");
-            if (typeId.HasValue) symbol = doc.GetElement(new ElementId(typeId.Value)) as FamilySymbol;
+            if (typeId.HasValue) symbol = doc.GetElement(ElementIdCompat.FromInt(typeId.Value)) as FamilySymbol;
             else symbol = FirstSymbolOf(doc, BuiltInCategory.OST_StructuralFraming);
             if (symbol == null)
                 throw new InvalidOperationException("No structural framing family loaded. Load a beam family or pass type_id (category StructuralFraming).");
@@ -1472,7 +1472,7 @@ namespace AICon
             FamilyInstance beam = doc.Create.NewFamilyInstance(Line.CreateBound(start, end), symbol, level, StructuralType.Beam);
             return new Dictionary<string, object>
             {
-                { "id", beam.Id.IntegerValue },
+                { "id", beam.Id.ToInt() },
                 { "type", symbol.Name },
                 { "length_mm", Math.Round(FtToMm(start.DistanceTo(end)), 1) }
             };
@@ -1487,7 +1487,7 @@ namespace AICon
                 XYZ p1 = PointFromArg(args, "corner1", 3);
                 XYZ p2 = PointFromArg(args, "corner2", 3);
                 Opening opening = doc.Create.NewOpening(wall, p1, p2);
-                return new Dictionary<string, object> { { "id", opening.Id.IntegerValue }, { "host", "wall " + wall.Id.IntegerValue } };
+                return new Dictionary<string, object> { { "id", opening.Id.ToInt() }, { "host", "wall " + wall.Id.ToInt() } };
             }
 
             List<object> points = Json.GetList(args, "points");
@@ -1509,7 +1509,7 @@ namespace AICon
                 arr.Append(Line.CreateBound(a, b));
             }
             Opening op = doc.Create.NewOpening(host, arr, true);
-            return new Dictionary<string, object> { { "id", op.Id.IntegerValue }, { "host", host.Category?.Name + " " + host.Id.IntegerValue } };
+            return new Dictionary<string, object> { { "id", op.Id.ToInt() }, { "host", host.Category?.Name + " " + host.Id.ToInt() } };
         }
 
         // ---------- modify (v2) ----------
@@ -1530,7 +1530,7 @@ namespace AICon
             {
                 { "mirrored", ids.Count },
                 { "mode", copy ? "copied" : "moved" },
-                { "new_ids", newIds != null ? newIds.Select(i => (object)i.IntegerValue).ToList() : new List<object>() }
+                { "new_ids", newIds != null ? newIds.Select(i => (object)i.ToInt()).ToList() : new List<object>() }
             };
         }
 
@@ -1569,7 +1569,7 @@ namespace AICon
             string name = Json.GetString(args, "name");
             if (string.IsNullOrEmpty(name)) throw new InvalidOperationException("'name' is required.");
             e.Name = name;
-            return new Dictionary<string, object> { { "id", e.Id.IntegerValue }, { "name", e.Name } };
+            return new Dictionary<string, object> { { "id", e.Id.ToInt() }, { "name", e.Name } };
         }
 
         private static object JoinGeometry(Document doc, Dictionary<string, object> args)
@@ -1593,7 +1593,7 @@ namespace AICon
             var viewIds = new List<ElementId>();
             List<object> rawIds = Json.GetList(args, "view_ids");
             if (rawIds != null)
-                foreach (object o in rawIds) viewIds.Add(new ElementId(Json.ToInt(o)));
+                foreach (object o in rawIds) viewIds.Add(ElementIdCompat.FromInt(Json.ToInt(o)));
             else if (doc.ActiveView != null) viewIds.Add(doc.ActiveView.Id);
             if (viewIds.Count == 0) throw new InvalidOperationException("No views to export.");
 
@@ -1641,7 +1641,7 @@ namespace AICon
             var types = family.GetFamilySymbolIds()
                 .Select(id => doc.GetElement(id))
                 .OfType<FamilySymbol>()
-                .Select(s => (object)new Dictionary<string, object> { { "id", s.Id.IntegerValue }, { "type", s.Name } })
+                .Select(s => (object)new Dictionary<string, object> { { "id", s.Id.ToInt() }, { "type", s.Name } })
                 .ToList();
             return new Dictionary<string, object>
             {
