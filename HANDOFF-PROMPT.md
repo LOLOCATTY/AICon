@@ -4,7 +4,7 @@
 > It describes what AICon is, how it is built, exactly where development has got to, and the
 > non-obvious rules that were learned the hard way.
 >
-> **Current state: v3.0.0 · 2026-08-10 · Revit 2023/2024 · .NET Framework 4.8**
+> **Current state: v3.1.0 · 2026-08-18 · Revit 2023/2024 · .NET Framework 4.8**
 
 ---
 
@@ -208,11 +208,27 @@ engine is proven, the WPF layer has not been clicked yet); running a **script** 
 **Installed on this machine right now:** 3 routines — `level-sheet-set`, `tall-wall-check`
 (composed), `thin-wall-audit` (script). **Code execution is ENABLED.**
 
-**Known open risk (deliberately deferred, do not "fix" without asking):**
-`ElementId.IntegerValue` (84 uses) and `new ElementId(int)` (36 uses) are deprecated in Revit 2024 and
-**removed in 2025** — masked by `<NoWarn>CS0618</NoWarn>`. Verified by compile test: Revit 2023 has
-**only** the old API; 2024 has both. Fixing now breaks 2023. Revit 2025 also moves to **.NET 8**, so a
-2025 build is a separate configuration anyway — do both together, at that time.
+**v3.1.0 changes (2026-08-18 — a full technical audit, see `docs/AUDIT.md`, plus fixes):**
+`run_code` migrated off the legacy CodeDom compiler onto the same Roslyn pipeline script Routines use
+(`AiconScriptCompiler.CompileRunCodeBody`) — modern C# now works there (`$"..."`, `?.`, `var`, LINQ),
+verified live in Revit against the Snowdon Towers sample model. A shared-secret token
+(`%APPDATA%\AICon\bridge.token`) is now required on every localhost bridge call. `run_code` got its
+own on/off switch (`AiconRoutineSettings.AllowRunCode`, defaults on). `delete_elements` now logs
+unconditionally. AR400's view-template/scope-box failures are no longer silently swallowed. Full
+findings + fix status: `docs/AUDIT.md`.
+
+**Known open risk — now IN PROGRESS, not just deferred:**
+`ElementId.IntegerValue`/`new ElementId(int)` are deprecated in Revit 2024, **removed in 2025**. Step 1
+done: every one of the ~104 real call sites now goes through `plugin/ElementIdCompat.cs`
+(`.ToInt()`/`ElementIdCompat.FromInt(...)`) instead of touching the API directly — net48 verified
+unchanged. Step 2 done: `Json.cs`'s `JavaScriptSerializer` (which does not exist on .NET 8 at all — a
+bigger blocker than ElementId, found while scanning for others) is now behind the same `#if
+NETFRAMEWORK` split, with a `System.Text.Json`-based `#else` branch verified in a throwaway net8.0
+console harness (no Revit reference needed — pure JSON logic). **Still blocked, and this is a real
+prerequisite, not a coding decision:** this machine has no Revit 2025 installed, so `net8.0-windows`
+has not been added to `<TargetFrameworks>` yet, nothing has been built or run against a real Revit 2025
+`RevitAPI.dll`, and any OTHER Revit 2025 API changes beyond ElementId are still unknown. Get Revit 2025
+on this machine before continuing this thread.
 
 **Loose end:** a test dimension (id 1495387, view `00-GROUND`) left in the live model from verifying
 `create_wall_dimension`. Harmless; delete when convenient.

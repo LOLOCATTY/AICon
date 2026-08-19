@@ -7,7 +7,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>AIConServer</AssemblyName>
     <InvariantGlobalization>true</InvariantGlobalization>
-    <Version>2.1.2</Version>
+    <Version>2.2.0</Version>
     <Product>AICon</Product>
   </PropertyGroup>
 
