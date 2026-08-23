@@ -164,7 +164,10 @@ if (-not (Test-Path $configDir)) {
 Write-Host ""
 Write-Host "  Setup complete!" -ForegroundColor Cyan
 if ($revitRunning -or $lockedYears.Count -gt 0) {
-    Write-Host "   * Revit is running: close and reopen Revit to load AICon $((Get-Content "$root\AICon.addin" | Select-String '<Name>').ToString() -replace '.*<Name>|</Name>.*','')" -ForegroundColor Yellow
+    # The add-in's display name is always "AICon" (AICon.addin's <Name>) — no need to re-derive it from
+    # the manifest file every run. The old version of this line did that AND hard-coded "AICon" too,
+    # printing "load AICon AICon".
+    Write-Host "   * Revit is running: close and reopen Revit to load the new AICon version." -ForegroundColor Yellow
 } else {
     Write-Host "   1. Start Revit -> click 'Always Load' when asked about AICon."
 }
