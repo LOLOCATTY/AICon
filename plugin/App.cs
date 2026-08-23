@@ -23,6 +23,12 @@ namespace AICon
         internal static BridgeServer Server;
         // The single in-Revit chat panel instance, so ribbon "agent" buttons can switch its backend live.
         internal static ChatPanelControl ChatPanel;
+        // True only once RegisterDockablePane below actually succeeds. OnStartup swallows a
+        // registration failure (logs it, keeps the rest of the add-in running) rather than failing
+        // startup entirely — so this is the one reliable signal that GetDockablePane will work later;
+        // ChatPanel being non-null is NOT enough, since its constructor can succeed while the
+        // registration call right after it still throws.
+        internal static bool ChatPaneRegistered;
         // Shared UI-thread dispatch mechanism — used by BOTH the localhost bridge (Claude) and the
         // in-Revit chat panel (Gemini / local models) so tool code always runs the same way.
         internal static RevitEventHandler Handler;
@@ -54,8 +60,12 @@ namespace AICon
                 {
                     ChatPanel = new ChatPanelControl();
                     application.RegisterDockablePane(ChatPaneId, "AICon Chat", new ChatPaneProvider(ChatPanel));
+                    ChatPaneRegistered = true;
                 }
-                catch (Exception ex) { Log("Chat pane registration failed: " + ex.Message); }
+                // Full exception (ex, not ex.Message) — a construction-time WPF/Revit-API failure here
+                // is exactly the kind of thing whose message alone ("Object reference not set...") means
+                // nothing without the stack trace pointing at which line actually threw.
+                catch (Exception ex) { Log("Chat pane registration failed: " + ex); }
 
                 BuildRibbon(application);
                 Log(ProductName + " " + Version + " started, listening on port " + Port);
