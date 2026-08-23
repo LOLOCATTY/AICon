@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json.Serialization;
 
 namespace AICon.Routines
@@ -121,6 +122,16 @@ namespace AICon.Routines
         [JsonPropertyName("description")] public string Description { get; set; }
         [JsonPropertyName("type")] public string Type { get; set; } = RoutineInputType.String;
         [JsonPropertyName("options")] public List<string> Options { get; set; }
+        // Enum-only, both optional, additive (existing routines with 'options' and no 'source'/'multi'
+        // behave exactly as before):
+        //  - 'source': read the choices LIVE from the open model when the form is built, instead of the
+        //    fixed 'options' list baked into routine.json at author time. See RoutineInputSource for the
+        //    recognised values. 'options' is still allowed alongside 'source' as a documentation-only
+        //    fallback shape; the live list always wins when both are present.
+        //  - 'multi': true turns a single ComboBox into a checkbox list and the bound value into a
+        //    List<object> of the checked strings, instead of one string.
+        [JsonPropertyName("source")] public string Source { get; set; }
+        [JsonPropertyName("multi")] public bool Multi { get; set; }
         [JsonPropertyName("required")] public bool Required { get; set; } = true;
         [JsonPropertyName("default")] public object Default { get; set; }
 
@@ -139,13 +150,39 @@ namespace AICon.Routines
                 case RoutineInputType.ElementId:
                     return null;
                 case RoutineInputType.Enum:
+                    if (!string.IsNullOrWhiteSpace(Source))
+                        return RoutineInputSource.IsKnown(Source)
+                            ? null
+                            : "input '" + Name + "' has unknown source '" + Source + "'. Known sources: " +
+                              RoutineInputSource.KnownList + ".";
                     return (Options != null && Options.Count > 0)
                         ? null
-                        : "input '" + Name + "' is an enum but has no 'options'.";
+                        : "input '" + Name + "' is an enum but has no 'options' (or a 'source' to read choices live from the model).";
                 default:
                     return "input '" + Name + "' has unknown type '" + Type + "'.";
             }
         }
+    }
+
+    /// <summary>
+    /// Known live-model sources an enum input's choices can be read from when the routine's form opens,
+    /// instead of (or alongside, as a documentation fallback for) a fixed 'options' list. Deliberately a
+    /// small, curated set — reusing the same categories the read tools already expose (list_levels,
+    /// list_views, ...) — rather than letting a routine author name an arbitrary Revit query.
+    /// </summary>
+    public static class RoutineInputSource
+    {
+        public const string Levels = "levels";
+        public const string Views = "views";
+        public const string Sheets = "sheets";
+        public const string Categories = "categories";
+
+        private static readonly string[] All = { Levels, Views, Sheets, Categories };
+
+        public static bool IsKnown(string source) =>
+            All.Any(s => string.Equals(s, (source ?? "").Trim(), StringComparison.OrdinalIgnoreCase));
+
+        public static string KnownList => string.Join(", ", All);
     }
 
     public sealed class RoutineStep

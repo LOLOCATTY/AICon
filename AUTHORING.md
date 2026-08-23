@@ -73,8 +73,33 @@ saved but refuses to run, with a message saying exactly that.
 
 ### Input types
 
-`string` · `number` · `integer` · `boolean` · `enum` (needs `options`) · `stringArray` (one per line) ·
-`elementId` (renders a **Pick…** button so the user clicks the element in the model).
+`string` · `number` · `integer` · `boolean` · `enum` (needs `options`, or `source` — see below) ·
+`stringArray` (one per line) · `elementId` (renders a **Pick…** button so the user clicks the element
+in the model).
+
+**`enum` choices from the live model, not a fixed list.** A plain `enum` needs `options` written once
+at author time — fine for choices that never change, wrong for anything like "pick a level": the
+routine would keep offering whatever levels existed the day it was saved. Set `source` instead of (or
+as a fallback alongside) `options` and AICon reads the real choices from the open model when the form
+appears:
+
+```json
+{ "name": "level", "label": "Level", "type": "enum", "source": "levels" }
+```
+
+Recognised sources: `levels`, `views` (printable views only), `sheets` (`"<number> - <name>"`),
+`categories` (every category actually present in the model). `source` always wins over `options` when
+both are given.
+
+**Picking more than one.** Add `"multi": true` to any `enum` (with `options` or `source`) to get a
+checkbox list instead of a combo box. The bound input becomes an **array** of the checked strings
+instead of one string — reference it in a step exactly like `stringArray`:
+
+```json
+{ "name": "levels", "label": "Levels", "type": "enum", "source": "levels", "multi": true }
+```
+
+Both are additive — an existing routine using plain `enum` + `options` needs no changes.
 
 Declare inputs once and you get **both** the user's form and this tool's MCP schema. There is no
 second place to edit — never hand-write a dialog.

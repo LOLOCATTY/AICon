@@ -159,11 +159,61 @@ namespace AICon.Routines
 
                 case RoutineInputType.Enum:
                 {
-                    var combo = new ComboBox { Height = 24, ItemsSource = inp.Options };
+                    // 'source' (live from the model) wins over a fixed 'options' list when both are
+                    // present; falls back to an empty list (never a live document) rather than guessing.
+                    List<string> choices = !string.IsNullOrWhiteSpace(inp.Source)
+                        ? ResolveDynamicOptions(inp.Source, uidoc != null ? uidoc.Document : null)
+                        : (inp.Options ?? new List<string>());
+
+                    if (inp.Multi)
+                    {
+                        List<string> preChecked = ToStringList(inp.Default);
+                        var checks = new List<CheckBox>();
+                        var listPanel = new StackPanel();
+                        foreach (string choice in choices)
+                        {
+                            var cb = new CheckBox
+                            {
+                                Content = choice,
+                                FontSize = 12,
+                                Foreground = Ink,
+                                Margin = new Thickness(0, 2, 0, 2),
+                                IsChecked = preChecked.Any(p => string.Equals(p, choice, StringComparison.OrdinalIgnoreCase))
+                            };
+                            checks.Add(cb);
+                            listPanel.Children.Add(cb);
+                        }
+                        block.Children.Add(new Border
+                        {
+                            BorderBrush = BorderClr,
+                            BorderThickness = new Thickness(1),
+                            CornerRadius = new CornerRadius(4),
+                            MaxHeight = 140,
+                            Child = new ScrollViewer
+                            {
+                                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                                Padding = new Thickness(8, 6, 8, 6),
+                                Content = listPanel
+                            }
+                        });
+                        if (choices.Count == 0)
+                            block.Children.Add(Hint(!string.IsNullOrWhiteSpace(inp.Source)
+                                ? "Nothing found in the model for this."
+                                : "No options configured for this input."));
+                        _fields.Add(new FieldRow
+                        {
+                            Input = inp,
+                            Read = () => checks.Where(c => c.IsChecked == true)
+                                .Select(c => (object)Convert.ToString(c.Content, CultureInfo.InvariantCulture)).ToList()
+                        });
+                        break;
+                    }
+
+                    var combo = new ComboBox { Height = 24, ItemsSource = choices };
                     string def = inp.Default == null ? null : Convert.ToString(inp.Default, CultureInfo.InvariantCulture);
-                    combo.SelectedIndex = def != null && inp.Options != null
-                        ? Math.Max(0, inp.Options.FindIndex(o => string.Equals(o, def, StringComparison.OrdinalIgnoreCase)))
-                        : (inp.Options != null && inp.Options.Count > 0 ? 0 : -1);
+                    combo.SelectedIndex = def != null
+                        ? Math.Max(0, choices.FindIndex(o => string.Equals(o, def, StringComparison.OrdinalIgnoreCase)))
+                        : (choices.Count > 0 ? 0 : -1);
                     block.Children.Add(combo);
                     _fields.Add(new FieldRow { Input = inp, Read = () => combo.SelectedItem as string });
                     break;
@@ -267,6 +317,35 @@ namespace AICon.Routines
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 3, 0, 0)
         };
+
+        // Deliberately mirrors the shape of the matching read tools (list_levels/list_views/list_sheets/
+        // list_categories) closely enough that a routine author's mental model of "what would this
+        // return" carries over, without actually calling through ToolDispatcher (this runs while the
+        // form is open, not inside a tool dispatch, and only needs names, not full records).
+        private static List<string> ResolveDynamicOptions(string source, Document doc)
+        {
+            if (doc == null) return new List<string>();
+            switch ((source ?? "").Trim().ToLowerInvariant())
+            {
+                case RoutineInputSource.Levels:
+                    return new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
+                        .OrderBy(l => l.Elevation).Select(l => l.Name).ToList();
+                case RoutineInputSource.Views:
+                    return new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>()
+                        .Where(v => !v.IsTemplate && v.CanBePrinted)
+                        .OrderBy(v => v.Name).Select(v => v.Name).ToList();
+                case RoutineInputSource.Sheets:
+                    return new FilteredElementCollector(doc).OfClass(typeof(ViewSheet)).Cast<ViewSheet>()
+                        .OrderBy(s => s.SheetNumber).Select(s => s.SheetNumber + " - " + s.Name).ToList();
+                case RoutineInputSource.Categories:
+                    var names = new HashSet<string>();
+                    foreach (Element e in new FilteredElementCollector(doc).WhereElementIsNotElementType())
+                        if (e.Category != null) names.Add(e.Category.Name);
+                    return names.OrderBy(n => n).ToList();
+                default:
+                    return new List<string>();
+            }
+        }
 
         private static object ParseNumber(string text)
         {

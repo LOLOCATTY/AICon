@@ -61,12 +61,21 @@
           "description": { "type": "string", "description": "Hint under the field; also the property description in the MCP schema." },
           "type": {
             "enum": ["string", "number", "integer", "boolean", "enum", "stringArray", "elementId"],
-            "description": "'enum' renders a combo box (see 'options'). 'elementId' renders a text box plus a Pick-in-model button. 'stringArray' renders one-per-line text."
+            "description": "'enum' renders a combo box (see 'options', or 'source' for a live model-driven list; add 'multi' for a checkbox list). 'elementId' renders a text box plus a Pick-in-model button. 'stringArray' renders one-per-line text."
           },
           "options": {
             "type": "array",
             "items": { "type": "string" },
-            "description": "Required when type is 'enum'."
+            "description": "A fixed choice list for type 'enum', written once at author time. Required when type is 'enum' UNLESS 'source' is set instead."
+          },
+          "source": {
+            "enum": ["levels", "views", "sheets", "categories"],
+            "description": "type 'enum' only. Reads the choice list LIVE from the open model when the form is built, instead of (or as a fallback if you also keep) a fixed 'options' list — e.g. 'levels' always shows the model's current level names, not whatever existed when the routine was saved. Live always wins over 'options' when both are present."
+          },
+          "multi": {
+            "type": "boolean",
+            "default": false,
+            "description": "type 'enum' only. true renders a checkbox list instead of a combo box, and the bound input becomes an ARRAY of the checked strings instead of one string. Works with 'options' or 'source'."
           },
           "required": { "type": "boolean", "default": true },
           "default": { "description": "Pre-filled value. Any JSON type matching 'type'." }
