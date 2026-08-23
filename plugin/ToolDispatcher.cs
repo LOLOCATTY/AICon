@@ -36,7 +36,7 @@ namespace AICon
         /// <summary>Tools that modify the document and therefore need a transaction.</summary>
         private static readonly HashSet<string> Mutating = new HashSet<string>
         {
-            "set_parameter", "set_element_type", "set_parameter_bulk", "rename_element", "join_geometry",
+            "set_parameter", "set_workset", "set_element_type", "set_parameter_bulk", "rename_element", "join_geometry",
             "create_wall", "create_floor", "create_level", "create_grid", "create_text_note",
             "place_family_instance", "create_room", "create_ceiling", "create_column", "create_beam",
             "create_opening", "move_elements", "copy_elements", "rotate_elements", "mirror_elements",
@@ -130,6 +130,7 @@ namespace AICon
 
                 // write
                 case "set_parameter": return SetParameter(doc, args);
+                case "set_workset": return SetWorkset(doc, args);
                 case "set_element_type": return SetElementType(doc, args);
                 case "create_wall": return CreateWall(doc, args);
                 case "create_floor": return CreateFloor(doc, args);

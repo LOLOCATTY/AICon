@@ -342,6 +342,14 @@ namespace AICon.Routines
                     foreach (Element e in new FilteredElementCollector(doc).WhereElementIsNotElementType())
                         if (e.Category != null) names.Add(e.Category.Name);
                     return names.OrderBy(n => n).ToList();
+                case RoutineInputSource.Worksets:
+                    // User worksets only — not the fixed system ones (Shared Levels and Grids etc. are
+                    // still real worksets and would appear here too if OfKind were left off, which is
+                    // usually not what an author wants to offer as a destination). Empty (not an error)
+                    // on a non-workshared model — doc.IsWorkshared is false there.
+                    if (!doc.IsWorkshared) return new List<string>();
+                    return new FilteredWorksetCollector(doc).OfKind(WorksetKind.UserWorkset)
+                        .OrderBy(w => w.Name).Select(w => w.Name).ToList();
                 default:
                     return new List<string>();
             }

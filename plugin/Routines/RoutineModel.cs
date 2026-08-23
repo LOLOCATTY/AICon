@@ -176,8 +176,9 @@ namespace AICon.Routines
         public const string Views = "views";
         public const string Sheets = "sheets";
         public const string Categories = "categories";
+        public const string Worksets = "worksets";
 
-        private static readonly string[] All = { Levels, Views, Sheets, Categories };
+        private static readonly string[] All = { Levels, Views, Sheets, Categories, Worksets };
 
         public static bool IsKnown(string source) =>
             All.Any(s => string.Equals(s, (source ?? "").Trim(), StringComparison.OrdinalIgnoreCase));

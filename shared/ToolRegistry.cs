@@ -232,14 +232,18 @@ public static class Tools
                     ["limit"] = Prop("number", "Max rows (default 200)")
                 }),
             Tool("filter_elements",
-                "Find elements of a category whose parameter matches a condition. Lengths compare in mm, angles in degrees.",
+                "Find elements of a category matching a condition — either a parameter test, or 'type_id' for " +
+                "EVERY instance of one specific type (get an example element's type_id from get_element first), " +
+                "or both together. Returns both full records ('elements') and a flat 'element_ids' array ready " +
+                "to pass straight into another tool's element_ids argument. Lengths compare in mm, angles in degrees.",
                 new() {
                     ["category"] = Prop("string", "Category name, e.g. 'Walls'"),
+                    ["type_id"] = Prop("number", "Match every instance whose type is this (see get_element's 'type_id'). Can be used alone, or combined with parameter_name/value."),
                     ["parameter_name"] = Prop("string", "Parameter to test, e.g. 'Unconnected Height', 'Comments', 'Mark'"),
                     ["operator"] = Prop("string", "equals | not_equals | contains | greater | less (default equals)"),
-                    ["value"] = Prop("string", "Value to compare against (number or text)"),
+                    ["value"] = Prop("string", "Value to compare against (number or text). Required together with parameter_name."),
                     ["limit"] = Prop("number", "Max matches (default 300)")
-                }, new[] { "category", "parameter_name", "value" }),
+                }, new[] { "category" }),
             Tool("quantities_by_type",
                 "Material takeoff style summary for a category: per type count, area m2, volume m3, length m.",
                 new() { ["category"] = Prop("string", "Category name, e.g. 'Walls', 'Floors', 'StructuralColumns'") },
@@ -561,6 +565,15 @@ public static class Tools
                     ["parameter_name"] = Prop("string", "Parameter name"),
                     ["value"] = new JsonObject { ["description"] = "Value (string, number in mm/degrees, or element id)" }
                 }, new[] { "element_ids", "parameter_name", "value" }),
+            Tool("set_workset",
+                "Move element INSTANCES to a workset by name (only works on a workshared model). To move every " +
+                "instance of one type, first get_element on one example to read its type_id, then filter_elements " +
+                "with that type_id to get element_ids, then pass those here. Note: a TYPE itself cannot be moved " +
+                "to a workset — Revit assigns types to a fixed system workset by category — only instances can.",
+                new() {
+                    ["element_ids"] = IdArrayProp("Ids of the element instances to move"),
+                    ["workset_name"] = Prop("string", "Exact workset name (case-insensitive) to move them to")
+                }, new[] { "element_ids", "workset_name" }),
             Tool("rename_element",
                 "Rename an element (views, levels, sheets, types, materials...).",
                 new() {

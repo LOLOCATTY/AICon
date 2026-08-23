@@ -112,22 +112,43 @@ namespace AICon
         private static object FilterElements(Document doc, Dictionary<string, object> args)
         {
             BuiltInCategory bic = ParseCategory(Json.GetString(args, "category"));
+            // type_id is a separate, structural filter (GetTypeId() equality) — independent of the
+            // parameter_name/operator/value condition below, and USABLE WITHOUT one. This is what makes
+            // "every element whose type is X" expressible in a composed routine with no code: pick an
+            // example element (get_element gives its type_id), then filter_elements(category, type_id)
+            // instead of needing a parameter to match on.
+            int? typeId = Json.GetInt(args, "type_id");
             string paramName = ParamNameArg(args);
             string op = (Json.GetString(args, "operator") ?? "equals").ToLowerInvariant();
             string value = Json.GetString(args, "value");
-            if (paramName == null || value == null)
+            bool hasParamCondition = paramName != null || value != null;
+            if (hasParamCondition && (paramName == null || value == null))
                 throw new InvalidOperationException(MissingParamNameOrValue(paramName, value));
+            if (!hasParamCondition && !typeId.HasValue)
+                throw new InvalidOperationException(
+                    "Give either 'type_id' (every element of that type) or 'parameter_name'+'value' (a parameter condition) — or both together.");
             int limit = Json.GetInt(args, "limit") ?? 300;
 
-            double numericQuery;
-            bool queryIsNumeric = double.TryParse(value, System.Globalization.NumberStyles.Any,
+            double numericQuery = 0;
+            bool queryIsNumeric = hasParamCondition && double.TryParse(value, System.Globalization.NumberStyles.Any,
                 System.Globalization.CultureInfo.InvariantCulture, out numericQuery);
 
             var matches = new List<object>();
+            var matchedIds = new List<object>();
             int scanned = 0;
             foreach (Element e in new FilteredElementCollector(doc).OfCategory(bic).WhereElementIsNotElementType())
             {
                 scanned++;
+                if (typeId.HasValue && e.GetTypeId().ToInt() != typeId.Value) continue;
+
+                if (!hasParamCondition)
+                {
+                    matches.Add(new Dictionary<string, object> { { "id", e.Id.ToInt() }, { "name", e.Name }, { "value", null } });
+                    matchedIds.Add(e.Id.ToInt());
+                    if (matches.Count >= limit) break;
+                    continue;
+                }
+
                 Parameter p = e.LookupParameter(paramName);
                 if (p == null && e.GetTypeId() != ElementId.InvalidElementId)
                     p = doc.GetElement(e.GetTypeId())?.LookupParameter(paramName);
@@ -178,6 +199,7 @@ namespace AICon
                         { "name", e.Name },
                         { "value", ParameterValueString(p) }
                     });
+                    matchedIds.Add(e.Id.ToInt());
                     if (matches.Count >= limit) break;
                 }
             }
@@ -185,7 +207,12 @@ namespace AICon
             {
                 { "scanned", scanned },
                 { "matched", matches.Count },
-                { "elements", matches }
+                { "elements", matches },
+                // Flat array of just the ids, ready to feed straight into element_ids-shaped tool
+                // arguments (e.g. set_parameter_bulk) via {{steps.alias.element_ids}} in a composed
+                // routine — "elements" alone forces picking one field out of each record, which
+                // placeholder substitution cannot do.
+                { "element_ids", matchedIds }
             };
         }
 
@@ -1559,6 +1586,49 @@ namespace AICon
                 catch (Exception ex) { errors.Add(Json.ToInt(o) + ": " + ex.Message); }
             }
             var result = new Dictionary<string, object> { { "updated", ok }, { "failed", errors.Count } };
+            if (errors.Count > 0) result["errors"] = errors.Take(10).Cast<object>().ToList();
+            return result;
+        }
+
+        // Deliberately its own tool rather than "use set_parameter with the right integer" — a
+        // workset's Workset parameter reports StorageType.Integer and DOES accept a plain
+        // Parameter.Set(int) (verified live), but that int is the workset's own internal id, which
+        // nothing else exposes as a number a caller could reasonably know. This resolves a workset by
+        // NAME (what list_categories-style tools and a routine's dropdown both show) instead.
+        private static object SetWorkset(Document doc, Dictionary<string, object> args)
+        {
+            if (!doc.IsWorkshared)
+                throw new InvalidOperationException("This model does not have worksharing enabled — there are no worksets to set.");
+
+            List<object> raw = Json.GetList(args, "element_ids");
+            if (raw == null || raw.Count == 0) throw new InvalidOperationException("'element_ids' is required.");
+            string worksetName = Json.GetString(args, "workset_name");
+            if (string.IsNullOrWhiteSpace(worksetName)) throw new InvalidOperationException("'workset_name' is required.");
+
+            List<Workset> worksets = new FilteredWorksetCollector(doc).OfKind(WorksetKind.UserWorkset).ToWorksets().ToList();
+            Workset target = worksets.FirstOrDefault(w => string.Equals(w.Name, worksetName, StringComparison.OrdinalIgnoreCase));
+            if (target == null)
+                throw new InvalidOperationException("Workset '" + worksetName + "' not found. Available: " +
+                    string.Join(", ", worksets.Select(w => w.Name)) + ".");
+
+            int ok = 0;
+            var errors = new List<string>();
+            foreach (object o in raw)
+            {
+                int id = Json.ToInt(o);
+                try
+                {
+                    Element e = doc.GetElement(new ElementId(id));
+                    if (e == null) throw new InvalidOperationException("not found in this model.");
+                    Parameter p = e.get_Parameter(BuiltInParameter.ELEM_PARTITION_PARAM);
+                    if (p == null) throw new InvalidOperationException("this element has no Workset parameter (it may not be workset-able, e.g. a view or a type).");
+                    if (p.IsReadOnly) throw new InvalidOperationException("its Workset parameter is read-only (element types are auto-assigned to a fixed system workset by category — Revit does not allow moving a TYPE itself; move its instances instead).");
+                    p.Set(target.Id.IntegerValue);
+                    ok++;
+                }
+                catch (Exception ex) { errors.Add(id + ": " + ex.Message); }
+            }
+            var result = new Dictionary<string, object> { { "moved", ok }, { "failed", errors.Count }, { "workset", target.Name } };
             if (errors.Count > 0) result["errors"] = errors.Take(10).Cast<object>().ToList();
             return result;
         }
