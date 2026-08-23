@@ -14,7 +14,7 @@
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <PlatformTarget>x64</PlatformTarget>
     <UseWPF>true</UseWPF>
-    <Version>3.1.0</Version>
+    <Version>3.1.1</Version>
     <Product>AICon</Product>
     <Company>Hossam Yousef</Company>
     <Description>AICon - AI connection for Autodesk Revit. Chat with Claude, Gemini, or a local model to read and edit your model.</Description>
