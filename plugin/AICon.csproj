@@ -1,13 +1,17 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <!-- net48 = Revit 2023/2024. net8.0-windows = Revit 2025+ (moved to .NET 8; ElementId.IntegerValue/
-         ElementId(int) removed there — see ElementIdCompat.cs — and System.Web.Script.Serialization
-         does not exist at all there — see Json.cs). Two DLLs, one source tree: MSBuild builds this
-         project once per TargetFramework into its own subfolder (bin\Release\net48\,
-         bin\Release\net8.0-windows\) — see AppendTargetFrameworkToOutputPath below, which used to be
-         false back when there was only one target. -->
-    <TargetFrameworks>net48;net8.0-windows</TargetFrameworks>
+    <!-- net48 = Revit 2023/2024. net8.0-windows = Revit 2025. net10.0-windows = Revit 2026 — verified
+         by compiler error (2026-08-23): Revit 2026's RevitAPI.dll references System.Runtime
+         Version=10.0.0.0, NOT 8.0.0.0 — Revit did not stay on .NET 8 past 2025 the way it stayed on
+         net48 across 2023+2024; each .NET-8-and-later Revit year may need re-checking, not assumed.
+         ElementId.IntegerValue/ElementId(int) is removed from net8.0-windows/net10.0-windows alike —
+         see ElementIdCompat.cs — and System.Web.Script.Serialization does not exist on either — see
+         Json.cs. Three DLLs, one source tree: MSBuild builds this project once per TargetFramework into
+         its own subfolder (bin\Release\net48\, bin\Release\net8.0-windows\, bin\Release\net10.0-windows\)
+         — see AppendTargetFrameworkToOutputPath below, which used to be false back when there was only
+         one target. -->
+    <TargetFrameworks>net48;net8.0-windows;net10.0-windows</TargetFrameworks>
     <LangVersion>latest</LangVersion>
     <RootNamespace>AICon</RootNamespace>
     <AssemblyName>AICon</AssemblyName>
@@ -71,7 +75,7 @@
     <Reference Include="System.IO.Compression" />
   </ItemGroup>
 
-  <PropertyGroup Condition="'$(TargetFramework)' == 'net8.0-windows'">
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net8.0-windows' OR '$(TargetFramework)' == 'net10.0-windows'">
     <!-- Harmless noise: Revit's OWN internal DLLs (DetailDBAPI.dll, MassingDBAPI.dll, ...) reference
          slightly different versions of RevitAPI/RevitAPIUI than each other; MSBuild reports every one
          it walks past. Confirmed zero effect on the actual build (0 errors either way). -->
@@ -86,14 +90,29 @@
   </PropertyGroup>
 
   <ItemGroup Condition="'$(TargetFramework)' == 'net8.0-windows'">
-    <!-- UNVERIFIED beyond "compiles" until this has actually run inside a live Revit 2025 process —
-         see HANDOFF-PROMPT.md and docs/AUDIT.md for the current state of that verification. -->
+    <!-- Compiled AND runtime-verified against Revit 2025 (2026-08-23) — see HANDOFF-PROMPT.md. -->
     <Reference Include="RevitAPI">
       <HintPath>C:\Program Files\Autodesk\Revit 2025\RevitAPI.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="RevitAPIUI">
       <HintPath>C:\Program Files\Autodesk\Revit 2025\RevitAPIUI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-windows'">
+    <!-- No Revit 2026 installed on this machine — these are reference-assembly-only copies from a
+         colleague's licensed Revit 2026 install (..\lib\revit-refs\2026\, gitignored — see
+         .gitignore's comment for why they are never committed). Used ONLY to compile against
+         (Private=false, same as every other Revit reference here); UNVERIFIED beyond "compiles" —
+         nothing has run this inside a live Revit 2026 process yet. -->
+    <Reference Include="RevitAPI">
+      <HintPath>..\lib\revit-refs\2026\RevitAPI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="RevitAPIUI">
+      <HintPath>..\lib\revit-refs\2026\RevitAPIUI.dll</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>

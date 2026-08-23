@@ -41,13 +41,16 @@ if ($claude) {
 $revitRunning = [bool](Get-Process "Revit" -ErrorAction SilentlyContinue)
 
 # --- 1) Revit add-in: install into every supported Revit year folder found ---
-# Two builds ship in this package (see plugin\AICon.csproj's <TargetFrameworks>):
-#   net48          -> Revit 2022-2024 (.NET Framework)
-#   net8.0-windows -> Revit 2025      (.NET 8 — Revit's own runtime moved there)
-# 2025 ONLY, not "2025+": the net8.0-windows build here was compiled and verified against Revit 2025's
-# own RevitAPI.dll specifically. A newer Revit year is not assumed compatible just because it is also
-# .NET 8 — it needs its own verification pass first, so it is reported as "found but not yet
-# supported" below rather than silently installed with unverified code.
+# Three builds ship in this package (see plugin\AICon.csproj's <TargetFrameworks>):
+#   net48           -> Revit 2022-2024 (.NET Framework)
+#   net8.0-windows  -> Revit 2025      (.NET 8)
+#   net10.0-windows -> Revit 2026      (.NET 10 — Revit did NOT stay on .NET 8 past 2025; verified by a
+#                                        compiler error when 2026's RevitAPI.dll was first referenced
+#                                        against net8.0-windows, not assumed from 2025)
+# One year per entry, not open-ended ranges: each of these was compiled AND (net48, net8.0-windows)
+# runtime-verified against that SPECIFIC year's own RevitAPI.dll. A newer Revit year is never assumed
+# compatible just because it is close by — it is reported as "found but not yet supported" below rather
+# than silently installed with unverified code.
 $addinsRoot = "$env:APPDATA\Autodesk\Revit\Addins"
 $installedYears = @()
 $lockedYears = @()
@@ -58,11 +61,12 @@ if (Test-Path $addinsRoot) {
         if ($dir.Name -match '^\d{4}$') {
             $foundYears += $dir.Name
             $year = [int]$dir.Name
-            # 2021 lacks the APIs AICon uses for floors/ceilings/PDF; years after 2025 have not been
-            # built/verified against yet.
+            # 2021 lacks the APIs AICon uses for floors/ceilings/PDF; years outside this list have not
+            # been built/verified against yet.
             $sourceBuild = $null
             if ($year -ge 2022 -and $year -le 2024) { $sourceBuild = "net48" }
             elseif ($year -eq 2025) { $sourceBuild = "net8.0-windows" }
+            elseif ($year -eq 2026) { $sourceBuild = "net10.0-windows" }
 
             if ($null -eq $sourceBuild) {
                 $unsupportedYears += $dir.Name

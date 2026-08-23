@@ -47,8 +47,13 @@ namespace AICon
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(LogPath));
 
-                // Cloud providers (Gemini/OpenAI) need TLS 1.2 from within Revit's .NET 4.8 host.
+#if NETFRAMEWORK
+                // Cloud providers (Gemini/OpenAI) need TLS 1.2 forced from within Revit's .NET
+                // Framework host — HttpClient there does not default to it the way modern .NET does.
+                // ServicePointManager itself is obsolete on net8.0-windows/net10.0-windows (SYSLIB0014)
+                // and unnecessary there: HttpClient already defaults to TLS 1.2+ on modern .NET.
                 try { ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12; } catch { }
+#endif
 
                 Handler = new RevitEventHandler();
                 BridgeEvent = ExternalEvent.Create(Handler);

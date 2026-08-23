@@ -24,3 +24,9 @@ routines.json
 # OS junk
 Thumbs.db
 desktop.ini
+
+# Autodesk's own reference assemblies (RevitAPI.dll/RevitAPIUI.dll) for a Revit year not installed on
+# this machine — used ONLY to compile against (Private=false, same as every other Revit reference in
+# AICon.csproj; never redistributed). Autodesk's proprietary DLLs, not ours to publish — get them from
+# your own licensed Revit install, or from a colleague's, never from this repo or the internet.
+lib/revit-refs/

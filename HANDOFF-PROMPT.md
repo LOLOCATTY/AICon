@@ -239,12 +239,40 @@ pane registration — see the Revit 2026 dockable-pane report below, a DIFFERENT
 behavioral API changes the compiler can't catch). Do not describe 2025 as "done" until it has actually
 opened a model and run a real tool call.
 
-**Revit 2026 — still completely unstarted.** No RevitAPI.dll/RevitAPIUI.dll for 2026 exist anywhere
-accessible yet; nothing to compile against. A colleague hit Revit 2026's version specifically and got a
-raw "dockable pane has not been created yet" crash — root-caused to `OnStartup` silently swallowing a
-`RegisterDockablePane` failure (see `ChatPaneRegistered` in App.cs, added 2026-08-23) — but the message
-fix does not make 2026 supported, it only makes the failure legible. Needs the same two files (or a
-full install) from 2026 before any real work can start there.
+**Revit 2026 support — 2026-08-23, same day, later: builds clean too, NOT yet run live.**
+A colleague (whose machine hit the dockable-pane crash below) sent `RevitAPI.dll`/`RevitAPIUI.dll` from
+their own licensed Revit 2026 install — legitimate provenance, copied from a real install, never
+downloaded from the internet (see the conversation this session if that judgment call needs revisiting).
+Stored at `lib/revit-refs/2026/` (gitignored — Autodesk's files, never redistributed, same
+`Private=false` compile-only treatment every Revit reference gets here).
+
+**Important correction to an assumption:** the plan going in was "2025 and 2026 both moved to .NET 8,
+so one net8.0-windows build might cover both." That assumption was WRONG and was caught by the
+compiler, not by reasoning about it: referencing 2026's RevitAPI.dll from the net8.0-windows target
+failed with CS1705 — "'RevitAPI' ... uses 'System.Runtime, Version=10.0.0.0' ... higher version than
+referenced assembly 'System.Runtime' ... Version=8.0.0.0". **Revit 2026 moved to .NET 10, not .NET 8.**
+`plugin/AICon.csproj` now has a THIRD target, `net10.0-windows`, referencing the 2026 DLLs above.
+**All three targets (net48, net8.0-windows, net10.0-windows) compile 0 errors / 0 warnings** against
+their respective real Revit API — no other 2026 API break beyond what 2025 already required showed up.
+`scripts/build-package.ps1`/`scripts/install.ps1` updated the same way F04/F05's pattern was: three
+folders in the zip, installer picks per exact year (2022-2024→net48, 2025→net8.0-windows,
+2026→net10.0-windows), anything else still reported found-but-unsupported rather than guessed at.
+
+**What is still NOT verified for 2026:** exactly the same gap as 2025 — never run inside a live Revit
+2026 process (no Revit 2026 installed on THIS machine to launch). The colleague who supplied the
+reference DLLs does have a real 2026 install, so once the message-fix version reaches them (see below),
+their next real launch is the first opportunity to find out. **Lesson for whoever picks this up next:**
+do not assume Revit N+1 shares Revit N's exact .NET version just because both post-date the
+net48→net8 jump — check by referencing the real DLL and reading what the compiler says, the same way
+this was actually discovered.
+
+A colleague separately hit Revit 2026's version and got a raw "dockable pane has not been created yet"
+crash — root-caused to `OnStartup` silently swallowing a `RegisterDockablePane` failure (see
+`ChatPaneRegistered` in App.cs, added 2026-08-23). That message fix does NOT by itself make 2026
+supported (2026 wasn't compiled against at all yet when that fix shipped) — it only made an
+unsupported-version failure legible instead of cryptic. With `net10.0-windows` now built, whether that
+colleague's ORIGINAL crash is actually resolved (as opposed to just producing a clearer message) is
+still unverified — needs their next real test to confirm.
 
 **Loose end:** a test dimension (id 1495387, view `00-GROUND`) left in the live model from verifying
 `create_wall_dimension`. Harmless; delete when convenient.
