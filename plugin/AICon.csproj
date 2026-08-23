@@ -1,11 +1,16 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net48</TargetFramework>
+    <!-- net48 = Revit 2023/2024. net8.0-windows = Revit 2025+ (moved to .NET 8; ElementId.IntegerValue/
+         ElementId(int) removed there — see ElementIdCompat.cs — and System.Web.Script.Serialization
+         does not exist at all there — see Json.cs). Two DLLs, one source tree: MSBuild builds this
+         project once per TargetFramework into its own subfolder (bin\Release\net48\,
+         bin\Release\net8.0-windows\) — see AppendTargetFrameworkToOutputPath below, which used to be
+         false back when there was only one target. -->
+    <TargetFrameworks>net48;net8.0-windows</TargetFrameworks>
     <LangVersion>latest</LangVersion>
     <RootNamespace>AICon</RootNamespace>
     <AssemblyName>AICon</AssemblyName>
-    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <PlatformTarget>x64</PlatformTarget>
     <UseWPF>true</UseWPF>
@@ -15,14 +20,23 @@
     <Description>AICon - AI connection for Autodesk Revit. Chat with Claude, Gemini, or a local model to read and edit your model.</Description>
     <!-- The deprecated ElementId.IntegerValue/ElementId(int) API is used in exactly ONE place now —
          ElementIdCompat.cs — which is the deliberate net48 side of the Revit 2023/2024 vs 2025+
-         compatibility split (see that file). Nowhere else in the plugin touches it directly. -->
+         compatibility split (see that file). Nowhere else in the plugin touches it directly. Only
+         relevant to the net48 build; net8.0-windows never touches these members at all. -->
     <NoWarn>CS0618</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Cross-targets fine as-is — no framework-specific version needed. -->
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.9.2" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net48'">
+    <!-- Only net48 needs a NuGet-restored reference-assemblies set to compile against; net8.0-windows
+         gets its BCL from the SDK directly. -->
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net48" Version="1.0.3" PrivateAssets="all" />
-    <!-- Providers/agent core parse JSON with System.Text.Json (net48 gets it via NuGet). -->
+    <!-- Providers/agent core parse JSON with System.Text.Json (net48 gets it via NuGet; net8.0-windows
+         has it built into the shared framework already — an explicit reference there is redundant and
+         risks a version-downgrade warning against whatever the framework ships). -->
     <PackageReference Include="System.Text.Json" Version="8.0.5" />
   </ItemGroup>
 
@@ -38,7 +52,7 @@
     <Compile Include="..\shared\*.cs" />
   </ItemGroup>
 
-  <ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net48'">
     <Reference Include="RevitAPI">
       <HintPath>C:\Program Files\Autodesk\Revit 2024\RevitAPI.dll</HintPath>
       <Private>false</Private>
@@ -47,10 +61,41 @@
       <HintPath>C:\Program Files\Autodesk\Revit 2024\RevitAPIUI.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <!-- System.Web.Script.Serialization lives here — .NET Framework only, does not exist on .NET 8 at
+         all (see Json.cs's #if NETFRAMEWORK split). System.Net.Http and System.IO.Compression are also
+         framework-reference-only syntax on net48; net8.0-windows has both as part of the SDK with no
+         <Reference> needed. -->
     <Reference Include="System.Web.Extensions" />
     <Reference Include="System.Net.Http" />
     <!-- FileTexts.cs (xlsx chat attachments) uses ZipArchive from System.IO.Compression. -->
     <Reference Include="System.IO.Compression" />
+  </ItemGroup>
+
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net8.0-windows'">
+    <!-- Harmless noise: Revit's OWN internal DLLs (DetailDBAPI.dll, MassingDBAPI.dll, ...) reference
+         slightly different versions of RevitAPI/RevitAPIUI than each other; MSBuild reports every one
+         it walks past. Confirmed zero effect on the actual build (0 errors either way). -->
+    <NoWarn>$(NoWarn);MSB3277</NoWarn>
+    <!-- REQUIRED, verified empirically: without this, Microsoft.CodeAnalysis.CSharp's own dependency
+         DLLs (Roslyn — used by AiconScriptCompiler.cs for run_code and script Routines) are NOT copied
+         to the output folder for this target, unlike net48 where they always were. AICon.dll is loaded
+         as a plugin into Revit's already-running process, not run via `dotnet AICon.dll` — there is no
+         .deps.json-based resolution happening for it, so every dependency has to sit physically next to
+         AICon.dll or the assembly load fails the first time run_code/a script routine actually runs. -->
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net8.0-windows'">
+    <!-- UNVERIFIED beyond "compiles" until this has actually run inside a live Revit 2025 process —
+         see HANDOFF-PROMPT.md and docs/AUDIT.md for the current state of that verification. -->
+    <Reference Include="RevitAPI">
+      <HintPath>C:\Program Files\Autodesk\Revit 2025\RevitAPI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="RevitAPIUI">
+      <HintPath>C:\Program Files\Autodesk\Revit 2025\RevitAPIUI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
 
 </Project>

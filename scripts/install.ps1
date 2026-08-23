@@ -40,53 +40,70 @@ if ($claude) {
 
 $revitRunning = [bool](Get-Process "Revit" -ErrorAction SilentlyContinue)
 
-# --- 1) Revit add-in: install into every Revit 2023+ folder found ---
+# --- 1) Revit add-in: install into every supported Revit year folder found ---
+# Two builds ship in this package (see plugin\AICon.csproj's <TargetFrameworks>):
+#   net48          -> Revit 2022-2024 (.NET Framework)
+#   net8.0-windows -> Revit 2025      (.NET 8 — Revit's own runtime moved there)
+# 2025 ONLY, not "2025+": the net8.0-windows build here was compiled and verified against Revit 2025's
+# own RevitAPI.dll specifically. A newer Revit year is not assumed compatible just because it is also
+# .NET 8 — it needs its own verification pass first, so it is reported as "found but not yet
+# supported" below rather than silently installed with unverified code.
 $addinsRoot = "$env:APPDATA\Autodesk\Revit\Addins"
 $installedYears = @()
 $lockedYears = @()
 $foundYears = @()
+$unsupportedYears = @()
 if (Test-Path $addinsRoot) {
     foreach ($dir in Get-ChildItem $addinsRoot -Directory) {
         if ($dir.Name -match '^\d{4}$') {
             $foundYears += $dir.Name
-            # 2022+ supported (2021 lacks the APIs AICon uses for floors/ceilings/PDF)
-            if ([int]$dir.Name -ge 2022) {
-                try {
-                    New-Item -ItemType Directory -Force "$($dir.FullName)\AICon\icons" | Out-Null
-                    $destPlugin = "$($dir.FullName)\AICon"
-                    # Copy AICon.dll AND its dependency DLLs (System.Text.Json etc. for the chat panel).
-                    foreach ($dll in Get-ChildItem "$root\AICon\*.dll") {
-                        $dest = Join-Path $destPlugin $dll.Name
-                        try {
-                            Copy-Item $dll.FullName $dest -Force
-                        } catch {
-                            # DLL locked by a running Revit: rename it aside, then copy the new one
-                            if (Test-Path $dest) { Move-Item $dest "$dest.old" -Force }
-                            Copy-Item $dll.FullName $dest -Force
-                            if ($lockedYears -notcontains $dir.Name) { $lockedYears += $dir.Name }
-                        }
+            $year = [int]$dir.Name
+            # 2021 lacks the APIs AICon uses for floors/ceilings/PDF; years after 2025 have not been
+            # built/verified against yet.
+            $sourceBuild = $null
+            if ($year -ge 2022 -and $year -le 2024) { $sourceBuild = "net48" }
+            elseif ($year -eq 2025) { $sourceBuild = "net8.0-windows" }
+
+            if ($null -eq $sourceBuild) {
+                $unsupportedYears += $dir.Name
+                continue
+            }
+
+            try {
+                New-Item -ItemType Directory -Force "$($dir.FullName)\AICon\icons" | Out-Null
+                $destPlugin = "$($dir.FullName)\AICon"
+                # Copy AICon.dll AND its runtime dependencies for THIS year's build specifically.
+                foreach ($dll in Get-ChildItem "$root\AICon\$sourceBuild\*.dll") {
+                    $dest = Join-Path $destPlugin $dll.Name
+                    try {
+                        Copy-Item $dll.FullName $dest -Force
+                    } catch {
+                        # DLL locked by a running Revit: rename it aside, then copy the new one
+                        if (Test-Path $dest) { Move-Item $dest "$dest.old" -Force }
+                        Copy-Item $dll.FullName $dest -Force
+                        if ($lockedYears -notcontains $dir.Name) { $lockedYears += $dir.Name }
                     }
-                    Copy-Item "$root\AICon\icons\*.png" "$($dir.FullName)\AICon\icons\" -Force
-                    # The routine authoring guide is read from beside the DLL by get_authoring_guide.
-                    if (Test-Path "$root\AICon\AUTHORING.md") {
-                        Copy-Item "$root\AICon\AUTHORING.md" "$($dir.FullName)\AICon\" -Force
-                    }
-                    Copy-Item "$root\AICon.addin" "$($dir.FullName)\" -Force
-                    # unblock the installed files too, and clear the old pre-AICon prototype
-                    Get-ChildItem "$($dir.FullName)\AICon" -Recurse -File | Unblock-File -ErrorAction SilentlyContinue
-                    Unblock-File "$($dir.FullName)\AICon.addin" -ErrorAction SilentlyContinue
-                    Remove-Item "$($dir.FullName)\RevitClaudePlugin.addin" -Force -ErrorAction SilentlyContinue
-                    $installedYears += $dir.Name
-                } catch {
-                    Write-Host "  WARNING: could not install for Revit $($dir.Name): $($_.Exception.Message)" -ForegroundColor Yellow
                 }
+                Copy-Item "$root\AICon\icons\*.png" "$($dir.FullName)\AICon\icons\" -Force
+                # The routine authoring guide is read from beside the DLL by get_authoring_guide.
+                if (Test-Path "$root\AICon\AUTHORING.md") {
+                    Copy-Item "$root\AICon\AUTHORING.md" "$($dir.FullName)\AICon\" -Force
+                }
+                Copy-Item "$root\AICon.addin" "$($dir.FullName)\" -Force
+                # unblock the installed files too, and clear the old pre-AICon prototype
+                Get-ChildItem "$($dir.FullName)\AICon" -Recurse -File | Unblock-File -ErrorAction SilentlyContinue
+                Unblock-File "$($dir.FullName)\AICon.addin" -ErrorAction SilentlyContinue
+                Remove-Item "$($dir.FullName)\RevitClaudePlugin.addin" -Force -ErrorAction SilentlyContinue
+                $installedYears += "$($dir.Name) ($sourceBuild)"
+            } catch {
+                Write-Host "  WARNING: could not install for Revit $($dir.Name): $($_.Exception.Message)" -ForegroundColor Yellow
             }
         }
     }
 }
 if ($installedYears.Count -eq 0) {
     if ($foundYears.Count -gt 0) {
-        Write-Host "  ERROR: found Revit $($foundYears -join ', ') but AICon needs Revit 2022 or newer." -ForegroundColor Red
+        Write-Host "  ERROR: found Revit $($foundYears -join ', ') but none of them are supported by this AICon build yet." -ForegroundColor Red
     } else {
         Write-Host "  ERROR: no Revit installation found (no folders under $addinsRoot)." -ForegroundColor Red
         Write-Host "  Start Revit once, close it, then run Setup.bat again."
@@ -94,6 +111,9 @@ if ($installedYears.Count -eq 0) {
     exit 1
 }
 Write-Host "  [1/3] Revit add-in installed for: $($installedYears -join ', ')" -ForegroundColor Green
+if ($unsupportedYears.Count -gt 0) {
+    Write-Host "        Found Revit $($unsupportedYears -join ', ') too, but this AICon build does not support $(if ($unsupportedYears.Count -eq 1) {'it'} else {'them'}) yet." -ForegroundColor Yellow
+}
 
 # --- 2) AICon server ---
 $serverDir = "$env:LOCALAPPDATA\AICon\server"

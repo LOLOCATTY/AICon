@@ -25,10 +25,16 @@ Write-Host "Generating icons..."
 Write-Host "Staging package..."
 $stage = "$root\dist\AICon-$version"
 if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
-New-Item -ItemType Directory -Force "$stage\AICon\icons", "$stage\server" | Out-Null
-# Ship AICon.dll AND its runtime dependencies (System.Text.Json + friends, needed by the in-Revit
-# chat panel's provider/agent code on .NET Framework).
-Copy-Item "$root\plugin\bin\Release\*.dll" "$stage\AICon\" -Force
+New-Item -ItemType Directory -Force "$stage\AICon\net48", "$stage\AICon\net8.0-windows", "$stage\AICon\icons", "$stage\server" | Out-Null
+# Two builds, one package: net48 (Revit 2023/2024) and net8.0-windows (Revit 2025+ — moved to .NET 8;
+# see plugin\ElementIdCompat.cs / Json.cs for why the source itself needed a compatibility split, and
+# plugin\AICon.csproj's <TargetFrameworks> for the build side). install.ps1 picks the matching folder
+# per detected Revit year. Each folder gets AICon.dll AND its runtime dependencies — net48 needs the
+# full System.Text.Json/Roslyn dependency chain (nothing is built in); net8.0-windows only needs
+# Roslyn's own two DLLs (CopyLocalLockFileAssemblies=true in the csproj — everything else Roslyn needs
+# is already in .NET 8's shared framework).
+Copy-Item "$root\plugin\bin\Release\net48\*.dll" "$stage\AICon\net48\" -Force
+Copy-Item "$root\plugin\bin\Release\net8.0-windows\*.dll" "$stage\AICon\net8.0-windows\" -Force
 Copy-Item "$root\assets\icons\*.png" "$stage\AICon\icons\" -Force
 # The routine authoring guide is served verbatim by get_authoring_guide, so it must sit next to the DLL.
 Copy-Item "$root\AUTHORING.md" "$stage\AICon\" -Force

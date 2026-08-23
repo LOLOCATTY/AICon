@@ -4,6 +4,11 @@
 > `AiconScriptCompiler` already uses for script Routines. **F13** (code signing) and **F17** (test
 > project) are process/infrastructure items, not code changes, and are unchanged. **F01** and **F10**
 > were informational only and needed no code change. See each row below for what actually happened.
+>
+> **2026-08-23 — the table right below this is now itself partially historical.** `plugin/AICon.csproj`
+> multi-targets `net48;net8.0-windows` as of this date (Revit 2025 got installed on this machine); it is
+> no longer net48-only. Left as originally written since F01 already exists to record exactly this kind
+> of drift — see `HANDOFF-PROMPT.md`'s "Revit 2025 support" section for the current, maintained state.
 
 # AICon — Technical Audit
 

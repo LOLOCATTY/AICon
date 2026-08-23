@@ -217,18 +217,34 @@ own on/off switch (`AiconRoutineSettings.AllowRunCode`, defaults on). `delete_el
 unconditionally. AR400's view-template/scope-box failures are no longer silently swallowed. Full
 findings + fix status: `docs/AUDIT.md`.
 
-**Known open risk — now IN PROGRESS, not just deferred:**
-`ElementId.IntegerValue`/`new ElementId(int)` are deprecated in Revit 2024, **removed in 2025**. Step 1
-done: every one of the ~104 real call sites now goes through `plugin/ElementIdCompat.cs`
-(`.ToInt()`/`ElementIdCompat.FromInt(...)`) instead of touching the API directly — net48 verified
-unchanged. Step 2 done: `Json.cs`'s `JavaScriptSerializer` (which does not exist on .NET 8 at all — a
-bigger blocker than ElementId, found while scanning for others) is now behind the same `#if
-NETFRAMEWORK` split, with a `System.Text.Json`-based `#else` branch verified in a throwaway net8.0
-console harness (no Revit reference needed — pure JSON logic). **Still blocked, and this is a real
-prerequisite, not a coding decision:** this machine has no Revit 2025 installed, so `net8.0-windows`
-has not been added to `<TargetFrameworks>` yet, nothing has been built or run against a real Revit 2025
-`RevitAPI.dll`, and any OTHER Revit 2025 API changes beyond ElementId are still unknown. Get Revit 2025
-on this machine before continuing this thread.
+**Revit 2025 support — 2026-08-23 update: builds clean, NOT yet run live.**
+Revit 2025 got installed on this machine (full install, `C:\Program Files\Autodesk\Revit 2025\`).
+`plugin/AICon.csproj` now multi-targets `net48;net8.0-windows` — one source tree, two DLLs, MSBuild
+builds both every time (`bin\Release\net48\AICon.dll` for Revit 2023/2024, `bin\Release\net8.0-windows\AICon.dll`
+for Revit 2025). **Both compile with 0 errors, 0 warnings against the real Revit 2025 RevitAPI.dll/RevitAPIUI.dll**
+— no other Revit 2025 API break beyond ElementId turned up at compile time. One real bug already caught
+this way: `Microsoft.CodeAnalysis.CSharp` (Roslyn — `run_code`/script Routines) was NOT being copied to
+the net8.0-windows output folder by default, which would have made `run_code` fail at runtime on 2025
+with a missing-assembly error; fixed with `<CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>`
+(net8.0-windows only — net48 never needed it). `scripts/build-package.ps1` and `scripts/install.ps1`
+updated: the packaged zip now ships both builds side by side (`AICon\net48\`, `AICon\net8.0-windows\`),
+and the installer picks the right one per detected Revit year — **2025 only, not "2025+"**: a Revit
+year past 2025 is reported as found-but-unsupported rather than silently installed with unverified code.
+
+**What is still NOT verified:** this build has never actually RUN inside a live Revit 2025 process —
+Revit 2025 has never been launched on this machine (`%APPDATA%\Autodesk\Revit\Addins\2025\` does not
+exist yet, meaning Revit creates it on first launch and hasn't been opened here even once). Compiling
+clean rules out a huge class of problems but not runtime-only ones (WPF hosting differences, dockable
+pane registration — see the Revit 2026 dockable-pane report below, a DIFFERENT unsupported version —,
+behavioral API changes the compiler can't catch). Do not describe 2025 as "done" until it has actually
+opened a model and run a real tool call.
+
+**Revit 2026 — still completely unstarted.** No RevitAPI.dll/RevitAPIUI.dll for 2026 exist anywhere
+accessible yet; nothing to compile against. A colleague hit Revit 2026's version specifically and got a
+raw "dockable pane has not been created yet" crash — root-caused to `OnStartup` silently swallowing a
+`RegisterDockablePane` failure (see `ChatPaneRegistered` in App.cs, added 2026-08-23) — but the message
+fix does not make 2026 supported, it only makes the failure legible. Needs the same two files (or a
+full install) from 2026 before any real work can start there.
 
 **Loose end:** a test dimension (id 1495387, view `00-GROUND`) left in the live model from verifying
 `create_wall_dimension`. Harmless; delete when convenient.
