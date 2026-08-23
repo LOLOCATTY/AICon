@@ -20,7 +20,7 @@ namespace AICon.Agent
     //   {
     //     "activeProfile": "gemini",
     //     "profiles": {
-    //       "gemini":   { "model": "gemini-2.0-flash", "apiKey": "AQ..." },
+    //       "gemini":   { "model": "gemini-3.6-flash", "apiKey": "AQ..." },
     //       "deepseek": { "apiKey": "sk-..." },
     //       "local":    { "model": "qwen2.5-coder:7b" }
     //     }
@@ -129,7 +129,12 @@ namespace AICon.Agent
             {
                 case ProfileGemini:
                     // Blank baseUrl → GeminiProvider uses the public Generative Language API.
-                    return new Config { Provider = "gemini", BaseUrl = "", Model = "gemini-2.0-flash" };
+                    // Was "gemini-2.0-flash" until Google retired it (2026-08-23): a live call started
+                    // returning 404 "This model models/gemini-2.0-flash is no longer available. Please
+                    // update your code to use models/gemini-3.6-flash" — that message is Google's own,
+                    // taken verbatim, not a guess. A user's own aiconagent.json profile can still
+                    // override "model" if a newer one replaces this in turn.
+                    return new Config { Provider = "gemini", BaseUrl = "", Model = "gemini-3.6-flash" };
                 case ProfileDeepSeek:
                     return new Config
                     {
