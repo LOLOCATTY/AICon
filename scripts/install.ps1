@@ -41,12 +41,14 @@ if ($claude) {
 $revitRunning = [bool](Get-Process "Revit" -ErrorAction SilentlyContinue)
 
 # --- 1) Revit add-in: install into every supported Revit year folder found ---
-# Three builds ship in this package (see plugin\AICon.csproj's <TargetFrameworks>):
-#   net48           -> Revit 2022-2024 (.NET Framework)
-#   net8.0-windows  -> Revit 2025      (.NET 8)
-#   net10.0-windows -> Revit 2026      (.NET 10 — Revit did NOT stay on .NET 8 past 2025; verified by a
-#                                        compiler error when 2026's RevitAPI.dll was first referenced
-#                                        against net8.0-windows, not assumed from 2025)
+# Four builds ship in this package (see plugin\AICon.csproj's <TargetFrameworks> and RevitApiYear):
+#   net48                -> Revit 2022-2024 (.NET Framework)
+#   net8.0-windows       -> Revit 2025      (.NET 8)
+#   net10.0-windows      -> Revit 2026      (.NET 10 — Revit did NOT stay on .NET 8 past 2025; verified
+#                                             by a compiler error when 2026's RevitAPI.dll was first
+#                                             referenced against net8.0-windows, not assumed from 2025)
+#   net10.0-windows-2027 -> Revit 2027      (same .NET 10 runtime as 2026, but a DIFFERENT RevitAPI.dll
+#                                             — 2026 and 2027 share a TFM, never a binary)
 # One year per entry, not open-ended ranges: each of these was compiled AND (net48, net8.0-windows)
 # runtime-verified against that SPECIFIC year's own RevitAPI.dll. A newer Revit year is never assumed
 # compatible just because it is close by — it is reported as "found but not yet supported" below rather
@@ -67,6 +69,7 @@ if (Test-Path $addinsRoot) {
             if ($year -ge 2022 -and $year -le 2024) { $sourceBuild = "net48" }
             elseif ($year -eq 2025) { $sourceBuild = "net8.0-windows" }
             elseif ($year -eq 2026) { $sourceBuild = "net10.0-windows" }
+            elseif ($year -eq 2027) { $sourceBuild = "net10.0-windows-2027" }
 
             if ($null -eq $sourceBuild) {
                 $unsupportedYears += $dir.Name

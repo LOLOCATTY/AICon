@@ -4,7 +4,9 @@
 > It describes what AICon is, how it is built, exactly where development has got to, and the
 > non-obvious rules that were learned the hard way.
 >
-> **Current state: v3.1.0 · 2026-08-18 · Revit 2023/2024 · .NET Framework 4.8**
+> **Current state: v3.1.2 · 2026-08-30 · Revit 2023–2027 (compiled; 2023/2024 live-verified,
+> 2025/2026/2027 compiled-only) · .NET Framework 4.8 (net48) + .NET 8 (net8.0-windows) + .NET 10
+> (net10.0-windows / net10.0-windows-2027)**
 
 ---
 
@@ -273,6 +275,31 @@ supported (2026 wasn't compiled against at all yet when that fix shipped) — it
 unsupported-version failure legible instead of cryptic. With `net10.0-windows` now built, whether that
 colleague's ORIGINAL crash is actually resolved (as opposed to just producing a clearer message) is
 still unverified — needs their next real test to confirm.
+
+**Revit 2027 support — 2026-08-30: same runtime as 2026, different binary, builds clean.**
+The user supplied `RevitAPI.dll`/`RevitAPIUI.dll` directly this time (from a colleague's licensed 2027
+install — same provenance pattern as 2026's). Stored at `lib/revit-refs/2027/` (gitignored, same
+treatment as 2026's).
+
+Verified by compiler, not assumed, exactly like 2026 was: referencing 2027's RevitAPI.dll against
+`net10.0-windows` compiled clean on the first try — **2027 stayed on .NET 10, did not jump again the
+way 2026 jumped past 2025's .NET 8.** But 2026's and 2027's RevitAPI.dll are still two different
+assemblies (`AssemblyVersion` 26.5.0.0 vs 27.2.0.0) — same TFM, not the same binary, and whether one
+built DLL would actually load correctly against the OTHER year's live RevitAPI.dll inside Revit is
+just as unverified for this net10/net10 pair as it always was for net48's 2023/2024 pair. So 2027 got
+its own build rather than reusing 2026's, via a new `RevitApiYear` MSBuild property on
+`net10.0-windows` (default `2026`; `2027` selected with
+`dotnet build -f net10.0-windows -p:RevitApiYear=2027`, output redirected to its own
+`bin\Release\net10.0-windows-2027\` folder via `AppendTargetFrameworkToOutputPath=false` — a plain
+`OutputPath` override is NOT enough on its own, MSBuild still appends `$(TargetFramework)` on top of
+it by default, which the first attempt at this got wrong before the fix landed).
+`scripts/build-package.ps1` now builds this extra pass explicitly and ships a fourth folder
+(`AICon\net10.0-windows-2027\`); `scripts/install.ps1` routes year 2027 to it, same one-year-per-entry
+policy as before (2028+ still reported found-but-unsupported).
+
+**What is still NOT verified for 2027:** identical gap to 2025 and 2026 — compiled clean, never run
+inside a live Revit 2027 process (none installed on this machine). Whoever eventually gets a real 2027
+launch is the first real test, same as the still-open 2025/2026 gaps above.
 
 **Loose end:** a test dimension (id 1495387, view `00-GROUND`) left in the live model from verifying
 `create_wall_dimension`. Harmless; delete when convenient.
