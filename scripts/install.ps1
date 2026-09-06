@@ -77,8 +77,29 @@ if (Test-Path $addinsRoot) {
             }
 
             try {
-                New-Item -ItemType Directory -Force "$($dir.FullName)\AICon\icons" | Out-Null
                 $destPlugin = "$($dir.FullName)\AICon"
+                # Wipe out whatever a PREVIOUS install left here before copying this version's files —
+                # do not merge on top of it. A real bug hit by a colleague on Revit 2026: an old build
+                # once copied a System.Text.Json.dll next to AICon.dll for this target (later removed
+                # as redundant, see AICon.csproj's net8.0-windows/net10.0-windows PropertyGroup
+                # comment); .NET probes a plugin's OWN folder for a same-named assembly BEFORE falling
+                # back to the shared framework, so that leftover DLL (an older, incompatible version)
+                # shadowed the correct in-box one and crashed every JSON-touching code path with a
+                # FileLoadException — "Could not switch AICon agent" and every MCP tool call alike.
+                # Reinstalling never cleared it because nothing ever deleted files the new package
+                # doesn't ship. Now it does, every time.
+                if (Test-Path $destPlugin) {
+                    Get-ChildItem $destPlugin -Recurse -File | ForEach-Object {
+                        try { Remove-Item $_.FullName -Force -ErrorAction Stop }
+                        catch {
+                            # Locked by a running Revit (the currently-loaded DLL): rename aside so the
+                            # fresh copy below can still land under the real name. Cleared next install
+                            # once Revit is closed.
+                            try { Move-Item $_.FullName "$($_.FullName).old" -Force -ErrorAction SilentlyContinue } catch { }
+                        }
+                    }
+                }
+                New-Item -ItemType Directory -Force "$destPlugin\icons" | Out-Null
                 # Copy AICon.dll AND its runtime dependencies for THIS year's build specifically.
                 foreach ($dll in Get-ChildItem "$root\AICon\$sourceBuild\*.dll") {
                     $dest = Join-Path $destPlugin $dll.Name

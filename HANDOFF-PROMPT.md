@@ -4,7 +4,7 @@
 > It describes what AICon is, how it is built, exactly where development has got to, and the
 > non-obvious rules that were learned the hard way.
 >
-> **Current state: v3.1.2 · 2026-08-30 · Revit 2023–2027 (compiled; 2023/2024 live-verified,
+> **Current state: v3.1.3 · 2026-09-06 · Revit 2023–2027 (compiled; 2023/2024 live-verified,
 > 2025/2026/2027 compiled-only) · .NET Framework 4.8 (net48) + .NET 8 (net8.0-windows) + .NET 10
 > (net10.0-windows / net10.0-windows-2027)**
 
@@ -300,6 +300,28 @@ policy as before (2028+ still reported found-but-unsupported).
 **What is still NOT verified for 2027:** identical gap to 2025 and 2026 — compiled clean, never run
 inside a live Revit 2027 process (none installed on this machine). Whoever eventually gets a real 2027
 launch is the first real test, same as the still-open 2025/2026 gaps above.
+
+**First real Revit 2026 field bug — v3.1.3, 2026-09-06: stale-file install bug, fixed.** A colleague
+running Revit 2026 hit `Could not switch AICon agent: Could not load file or assembly
+'System.Text.Json, Version=8.0.0.5, ...'` plus every MCP tool call (`list_elements`, etc.) failing the
+same session — looked like two bugs, was one. Diagnosed **without a live Revit 2026** by comparing
+assembly identities directly: reflection on the shipped `net10.0-windows` `AICon.dll` shows it actually
+references `System.Text.Json, Version=10.0.0.0` (matches this machine's .NET 10.0.9 SDK) — not
+8.0.0.5. Version 8.0.0.5 is the AssemblyVersion of the NuGet `System.Text.Json` **8.0.5** package's
+compat-shim build, confirmed via `plugin/obj/project.assets.json` to be exactly what the **net48**
+target resolves (an early build once referenced it for net8.0-windows too, before the "redundant,
+framework already has it" cleanup — see the `net8.0-windows`/`net10.0-windows` `PropertyGroup`
+comment). Conclusion: a leftover `System.Text.Json.dll` from an older install was still sitting in the
+colleague's `%APPDATA%\Autodesk\Revit\Addins\2026\AICon\` folder. .NET probes a plugin's own folder
+for a same-named assembly **before** falling back to the shared framework, so that stale, older file
+shadowed the correct in-box one — breaking every code path that touches JSON (agent switching AND the
+whole tool-dispatch bridge alike, hence both symptoms from one cause). Root bug: `install.ps1` only
+ever copied files over an existing install, never deleted what a previous version left behind that the
+new one doesn't ship. Fixed in `scripts/install.ps1`'s per-year install loop — the whole `AICon`
+destination folder is now wiped file-by-file before the fresh copy (still renaming aside, not
+deleting, any file locked by a currently-running Revit, same as the pre-existing DLL-lock handling).
+**Immediate workaround that does not need this fix:** delete
+`%APPDATA%\Autodesk\Revit\Addins\2026\AICon\` by hand, then reinstall.
 
 **Loose end:** a test dimension (id 1495387, view `00-GROUND`) left in the live model from verifying
 `create_wall_dimension`. Harmless; delete when convenient.
