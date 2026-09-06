@@ -323,6 +323,51 @@ deleting, any file locked by a currently-running Revit, same as the pre-existing
 **Immediate workaround that does not need this fix:** delete
 `%APPDATA%\Autodesk\Revit\Addins\2026\AICon\` by hand, then reinstall.
 
+**Script-routine bug batch from an external field report — v3.1.3, 2026-09-06, still same version
+(user's explicit call — this round folded into the already-built 3.1.3 rather than bumping again).** A
+bug report (`aicon-script-routine-bug-context.md`, a different user/company — "ELBOSTAN") described two
+script-routine problems. Both root-caused in the actual code, not guessed:
+1. **`allowCodeExecution: true` in `routines.json` "still didn't work"** — `AiconRoutineSettings.Load()`
+   ([plugin/Routines/AiconRoutineSettings.cs](plugin/Routines/AiconRoutineSettings.cs)) swallowed ANY
+   JSON parse failure silently and fell back to OFF with no way to tell "the key is missing" from "the
+   file exists but is broken" (a stray smart-quote from pasting is enough). Fixed: `Load(out string
+   parseError)` overload surfaces the real reason; `RoutineScriptHost.cs`'s error message now includes
+   it when present, and no longer tells the user to restart Revit (the flag is read fresh every run —
+   confirmed by reading the call site, not assumed). Also added `PropertyNameCaseInsensitive = true` for
+   consistency with `RoutineStore.cs`'s own JsonSerializerOptions.
+2. **Arabic text in a routine's `description` rendered as mojibake in the Run dialog, English fields
+   fine.** NOT a routine-JSON round-trip bug (that path is clean UTF-8 both ways, confirmed). Root cause:
+   `server/Program.cs` (the actual MCP stdio server Claude Desktop talks to) set `Console.OutputEncoding
+   = new UTF8Encoding(false)` but never set `Console.InputEncoding` — which then defaults to the OS's
+   console input codepage, NOT UTF-8, on a non-English Windows locale. Every multi-byte UTF-8 byte
+   sequence coming in over stdin (Claude Desktop always sends UTF-8 JSON-RPC) got misdecoded right there
+   before JSON parsing ever saw it; ASCII bytes are identical across codepages, which is exactly why only
+   non-ASCII text broke. Proof this was a real omission, not a design choice: `agent/Program.cs` (the
+   console host) already sets BOTH lines. Fixed by adding the matching `Console.InputEncoding` line to
+   `server/Program.cs`.
+3. **Bonus finding while reading the script compiler for issue 1 — a real, separate limitation**: the
+   user separately asked to be able to run "any code, even big and complex" in a routine.
+   `routine.Script.Files` was already a list, but `AiconScriptCompiler.Compile()`
+   ([plugin/Routines/AiconScriptCompiler.cs](plugin/Routines/AiconScriptCompiler.cs)) decided
+   per-FILE whether to wrap it as a bare body or use it as-is (`IsFullRoutine` check) — so a second
+   "helper" file that is a plain class (not itself an `IAiconRoutine`) got its whole class declaration
+   stuffed inside a generated method body: invalid C#. Multi-file routines were effectively broken
+   beyond file 1. Fixed: only `files[0]` (the entry point) gets the bare-body-or-IAiconRoutine
+   treatment; every other file compiles as-is into the same assembly, free to be called from the entry
+   file. Also fixed `RoutineTools.SaveRoutine`'s pre-save compile check, which was compiling each file
+   in isolation via the now-removed `CompileSnippet` — replaced with `CompileForSave`, which checks all
+   of a routine's files together in the same order/entry-point rule the real run uses, so save-time
+   validation can never diverge from run-time behavior. **Verified with a dedicated harness**
+   (`scratchpad/multifiletest`, compiles the real `AiconScriptCompiler.cs`/`RoutineModel.cs` unmodified,
+   no Revit API needed by using a locally-declared decoy `IAiconRoutine` so `IsFullRoutine`'s string
+   check fires without needing RevitAPIUI.dll loadable outside of actually being hosted in Revit.exe):
+   4/4 checks pass — the old per-file-wrap bug reproduces, a 2-file and a 3-file routine both compile
+   under the fix, and file order matters exactly as designed (entry must be `files[0]`).
+   `AUTHORING.md` updated with the multi-file convention and an example.
+
+All three fixed and build-verified (0 warnings/0 errors); packaged into the same `AICon-3.1.3.zip`
+(rebuilt, not a new version number — the user's explicit choice this round).
+
 **Loose end:** a test dimension (id 1495387, view `00-GROUND`) left in the live model from verifying
 `create_wall_dimension`. Harmless; delete when convenient.
 

@@ -41,6 +41,19 @@ saved but refuses to run, with a message saying exactly that.
 > **Never put C# inside `routine.json`.** Source always goes in its own `.cs` file, passed through
 > `save_routine`'s `files` argument.
 
+**More than one file is fine — there is no size or complexity limit.** `script.files` is a list; every
+file is compiled together into ONE assembly, so they can freely call each other. The only rule:
+**`files[0]` is the entry point** (a bare body or a full `IAiconRoutine` class, same as a single-file
+routine — see §5); every other file must be ordinary, complete C# (a helper class, a data model, extra
+static methods) with nothing special about it. Put the entry file first:
+
+```json
+"script": { "files": ["Routine.cs", "Helpers.cs", "Models.cs"] }
+```
+
+A routine that has genuinely outgrown one file is a sign it should have been `Helpers.cs` all along,
+not a reason to avoid `script` — split it.
+
 ---
 
 ## 3. `routine.json`

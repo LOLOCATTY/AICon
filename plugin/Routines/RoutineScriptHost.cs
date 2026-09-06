@@ -99,10 +99,19 @@ namespace AICon.Routines
         {
             var result = new RoutineRunResult();
 
-            if (!AiconRoutineSettings.Load().AllowCodeExecution)
+            string settingsError;
+            AiconRoutineSettings settings = AiconRoutineSettings.Load(out settingsError);
+            if (!settings.AllowCodeExecution)
             {
+                // Re-read fresh every call (no restart needed for this switch to take effect) — so if
+                // it's still off after the user says they set it, the file itself is the thing to check.
                 result.Error = "Script routines are turned off. Set \"allowCodeExecution\": true in " +
-                               AiconRoutineSettings.FilePath + " and restart Revit.";
+                               AiconRoutineSettings.FilePath + " (no restart needed — this is checked " +
+                               "fresh every run).";
+                if (settingsError != null)
+                    result.Error += " NOTE: that file exists but could not be read as JSON (" +
+                                     settingsError + ") — it is being treated as OFF because of that, " +
+                                     "not because the key is missing. Fix or delete the file and try again.";
                 return result;
             }
 

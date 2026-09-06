@@ -15,6 +15,14 @@ string serverVersion = Assembly.GetExecutingAssembly()
 var http = new HttpClient { Timeout = TimeSpan.FromSeconds(120) };
 
 Console.OutputEncoding = new UTF8Encoding(false);
+// Claude Desktop always writes UTF-8 over this pipe (JSON-RPC), but Console.InputEncoding otherwise
+// defaults to the OS's console input codepage — on a non-English Windows locale that is NOT UTF-8, so
+// every multi-byte character in an incoming tool argument (e.g. Arabic text in a save_routine call)
+// gets misdecoded right here, before JSON parsing ever sees it. ASCII text is unaffected (identical
+// bytes in every single-byte codepage), which is exactly why this surfaced as "Arabic renders as
+// mojibake, English is fine" rather than an outright parse failure. agent/Program.cs (the console
+// host) already sets this; this file only had the OutputEncoding half of the same fix.
+Console.InputEncoding = new UTF8Encoding(false);
 var stdout = Console.Out;
 var stdin = Console.In;
 

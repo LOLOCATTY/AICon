@@ -83,12 +83,30 @@ namespace AICon.Routines
             return Compile(sources, "AiconRoutine_" + routine.Id.Replace('-', '_'));
         }
 
-        /// <summary>Compiles one snippet — used to check an AI's code BEFORE promoting it to a routine.</summary>
-        internal static ScriptCompileResult CompileSnippet(string source, string assemblyName)
+        /// <summary>
+        /// Compiles a script routine's files together BEFORE any of them are written to disk, in the
+        /// exact order/entry-point rules <see cref="Compile"/> applies at real run time (see its
+        /// comment) — so save_routine's pre-save check can never accept something CompileRoutine would
+        /// later reject, or vice versa. Takes in-memory content keyed by filename, since save_routine
+        /// has nothing on disk yet to read from.
+        /// </summary>
+        internal static ScriptCompileResult CompileForSave(
+            IList<string> fileOrder, IDictionary<string, string> contentByFileName, string assemblyName)
         {
-            return Compile(
-                new List<KeyValuePair<string, string>> { new KeyValuePair<string, string>("Routine.cs", source) },
-                assemblyName);
+            var sources = new List<KeyValuePair<string, string>>();
+            foreach (string name in fileOrder)
+            {
+                string fileName = Path.GetFileName(name);
+                string content;
+                if (!contentByFileName.TryGetValue(fileName, out content))
+                {
+                    var missing = new ScriptCompileResult();
+                    missing.Errors.Add(Simple("AICON002", "Script file not found: " + name));
+                    return missing;
+                }
+                sources.Add(new KeyValuePair<string, string>(fileName, content));
+            }
+            return Compile(sources, assemblyName);
         }
 
         /// <summary>
@@ -151,9 +169,19 @@ namespace AICon.Routines
             var result = new ScriptCompileResult();
 
             var trees = new List<SyntaxTree>();
-            foreach (KeyValuePair<string, string> s in sources)
+            for (int i = 0; i < sources.Count; i++)
             {
-                string text = alreadyWrapped || IsFullRoutine(s.Value) ? s.Value : WrapBody(s.Value);
+                KeyValuePair<string, string> s = sources[i];
+                // Only the FIRST file is the routine's entry point and gets the bare-body-or-
+                // IAiconRoutine treatment (matching what a single-file routine has always done). Every
+                // ADDITIONAL file — a routine that outgrew one file — is a plain, complete C# source
+                // (a helper class, a data model, extra static methods) compiled as-is into the same
+                // assembly, so it can be referenced from the entry file freely. Without this, a second
+                // file that is not itself an IAiconRoutine would fall through to WrapBody and get its
+                // whole class declaration stuffed inside a generated method body — invalid C#, and a
+                // real limit on how big/complex a routine's code could ever grow.
+                bool treatAsIs = alreadyWrapped || i > 0 || IsFullRoutine(s.Value);
+                string text = treatAsIs ? s.Value : WrapBody(s.Value);
                 // The encoding argument is REQUIRED: emitting a PDB for a tree with no encoding fails
                 // with CS8055, which is a baffling error to hit for an unrelated reason.
                 trees.Add(CSharpSyntaxTree.ParseText(text, ParseOptions, s.Key, Encoding.UTF8));

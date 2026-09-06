@@ -86,25 +86,27 @@ namespace AICon
                         throw new InvalidOperationException(
                             "The routine lists script file '" + needed + "' but 'files' does not contain it.");
 
-                // Compile BEFORE saving. Saving a routine that cannot compile just creates a broken
-                // button, and the diagnostics are far more useful to the agent right now.
-                foreach (KeyValuePair<string, string> f in extra)
-                {
-                    ScriptCompileResult check = AiconScriptCompiler.CompileSnippet(f.Value, "AiconRoutineCheck");
-                    if (!check.Success)
-                        return new Dictionary<string, object>
-                        {
-                            { "saved", false },
-                            { "reason", "compile_failed" },
-                            { "file", f.Key },
-                            { "errors", check.Errors.Select(e => (object)new Dictionary<string, object>
-                                {
-                                    { "id", e.Id }, { "message", e.Message },
-                                    { "line", e.Line }, { "column", e.Column }, { "file", e.File }
-                                }).ToList() },
-                            { "note", "Nothing was saved. Line numbers refer to the source you sent." }
-                        };
-                }
+                // Compile BEFORE saving — all of the routine's files TOGETHER, in routine.Script.Files
+                // order, exactly as AiconScriptCompiler.CompileRoutine will compile them at run time
+                // (see its comment: file 0 is the entry point, any others are plain helper C# compiled
+                // as-is). Checking each file in isolation would wrongly reject a legitimate multi-file
+                // routine — a helper file with no IAiconRoutine class would look like an invalid "bare
+                // body" on its own even though it compiles fine alongside the entry file. Saving a
+                // routine that cannot compile just creates a broken button, and the diagnostics are far
+                // more useful to the agent right now.
+                ScriptCompileResult check = AiconScriptCompiler.CompileForSave(routine.Script.Files, extra, "AiconRoutineCheck");
+                if (!check.Success)
+                    return new Dictionary<string, object>
+                    {
+                        { "saved", false },
+                        { "reason", "compile_failed" },
+                        { "errors", check.Errors.Select(e => (object)new Dictionary<string, object>
+                            {
+                                { "id", e.Id }, { "message", e.Message },
+                                { "line", e.Line }, { "column", e.Column }, { "file", e.File }
+                            }).ToList() },
+                        { "note", "Nothing was saved. Line numbers refer to the source you sent." }
+                    };
             }
 
             string folder = RoutineStore.Save(routine, extra, Json.GetString(args, "target_root"));

@@ -27,7 +27,8 @@ namespace AICon.Routines
         // owner can turn it OFF later (e.g. before handing AICon to a second, less-trusted user).
         [JsonPropertyName("allowRunCode")] public bool AllowRunCode { get; set; } = true;
 
-        private static readonly JsonSerializerOptions JsonOpts = new JsonSerializerOptions { WriteIndented = true };
+        private static readonly JsonSerializerOptions JsonOpts =
+            new JsonSerializerOptions { WriteIndented = true, PropertyNameCaseInsensitive = true };
 
         public static string FilePath =>
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -35,13 +36,28 @@ namespace AICon.Routines
 
         public static AiconRoutineSettings Load()
         {
+            string ignored;
+            return Load(out ignored);
+        }
+
+        /// <summary>
+        /// Same as <see cref="Load()"/>, but on a hand-edited-and-broken file <paramref name="parseError"/>
+        /// carries WHY it fell back to OFF instead of leaving the user to guess. A real report: a user
+        /// added <c>{"allowCodeExecution": true}</c> by hand, restarted Revit, and still got "turned
+        /// off" with no clue their file wasn't actually being read (a stray smart-quote from pasting out
+        /// of a rich-text editor is enough to fail JSON.Parse silently). This still defaults to OFF on
+        /// any failure — the safe direction — it just stops being silent about it.
+        /// </summary>
+        public static AiconRoutineSettings Load(out string parseError)
+        {
+            parseError = null;
             try
             {
                 if (File.Exists(FilePath))
                     return JsonSerializer.Deserialize<AiconRoutineSettings>(File.ReadAllText(FilePath), JsonOpts)
                            ?? new AiconRoutineSettings();
             }
-            catch { /* hand-edited or corrupt → treat as OFF, the safe direction */ }
+            catch (Exception ex) { parseError = ex.Message; }
             return new AiconRoutineSettings();
         }
 
