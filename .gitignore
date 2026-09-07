@@ -25,6 +25,9 @@ routines.json
 Thumbs.db
 desktop.ini
 
+# Throwaway local experiments (e.g. compile-pattern tests), not part of the product.
+scratchpad/
+
 # Autodesk's own reference assemblies (RevitAPI.dll/RevitAPIUI.dll) for a Revit year not installed on
 # this machine — used ONLY to compile against (Private=false, same as every other Revit reference in
 # AICon.csproj; never redistributed). Autodesk's proprietary DLLs, not ours to publish — get them from

@@ -81,7 +81,7 @@ namespace AICon
                            "ask the user what they want instead.";
             }
 
-            var job = new BridgeJob { Tool = tool, Args = args };
+            var job = new BridgeJob { Tool = tool, Args = args, Source = "in_revit_panel" };
             App.Handler.Queue.Enqueue(job);
             App.BridgeEvent.Raise();
 

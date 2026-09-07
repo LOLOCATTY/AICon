@@ -6,6 +6,145 @@ for the technical audit this grew out of, see `docs/AUDIT.md`.
 
 ---
 
+## v3.2.0 — 2026-09-07
+
+**Router / Preview / Log safety layers, plus a `run_code` confirm gate.** Prompted by an architecture
+discussion (docs/AUDIT.md findings F03/F06/F08/F16 had already flagged the underlying gaps): the tool
+dispatch pipeline (`ToolDispatcher.cs`) treated every mutating call identically, showed no expected
+effect before committing, and had no general audit trail (only `delete_elements` got a one-off log
+line). `run_code` compounded this — full Revit API + unrestricted .NET access, no prior review, gated
+by a switch that defaults on.
+
+**Router:** `ToolTier` (`Read` / `Mutating` / `Bulk` / `Unsandboxed`) replaces the old single
+`Mutating` boolean. `run_code` is always `Unsandboxed`. A normally-`Mutating` call escalates to `Bulk`
+past a configurable element/op count (`AiconRoutineSettings.BulkElementThreshold` /
+`BulkBatchOpThreshold`, default 50/20). Read tools are untouched — same fast path as before.
+
+**Preview:** `BuildPreviewSummary` computes a plain-language "what this will do" line (e.g. "12 Walls,
+3 Doors", or a move's translation vector) before the transaction opens, attached to the result as
+`"summary"`. Deliberately non-blocking — informational only, so it can never stall an unattended
+Routine run.
+
+**Log:** new `Services/AuditLog.cs` writes one JSON-line per resolved mutating/`Unsandboxed` operation
+to `%APPDATA%\AICon\audit.log` (tool, tier, `front_door` — `mcp` / `in_revit_panel` / `routine`, the
+closest honest answer to "who" AICon has, since it has no real user identity — summary, element ids,
+success/error). Separate file from `bridge.log` and `decisions.log`. Granularity is per-operation, not
+per-transaction, so a partially-failed `batch` shows exactly which ops actually stuck — and for the
+all-or-nothing default, per-op entries are buffered and only flushed once the transaction genuinely
+commits; a rollback logs one honest "nothing committed" line instead of a misleading trail of
+individually-"successful" entries that then got undone.
+
+**`run_code`:** now requires `"confirmed": true` on every call — without it, the call returns the code
+that would run and does not compile or execute anything. Works identically across all three front doors
+(no native-dialog-vs-stdio split to design). Every call is logged unconditionally, including the
+`no_transaction:true` path, which previously had no logging at all (closes F08). `AllowRunCode` stays
+default-on (F16's inversion was judged already addressed by the new per-call gate, not worth the
+day-to-day friction of flipping the machine default).
+
+**Composed Routines may no longer name `run_code` as a step** (`RoutineModel.Validate()` rejects it at
+save time) — closes the one path by which the new confirm gate could otherwise stall an unattended,
+ribbon-button-triggered routine run. **Script Routines are entirely unaffected by any of this change**:
+`RoutineScriptHost.Run` never calls `run_code` — verified by reading the code, not assumed — so a saved
+script routine runs at exactly the same speed, with no summary/log/confirm step added, before and
+after this version.
+
+Drive-by fix: `run_code`'s "AllowRunCode is off" error message used to say "restart Revit to re-enable
+it" — wrong, `AiconRoutineSettings.Load()` re-reads the file fresh on every call, same as it already
+said for `AllowCodeExecution`'s equivalent message. Corrected.
+
+Builds clean on all four targets (net48, net8.0-windows, net10.0-windows, net10.0-windows-2027).
+**Not yet exercised against a live model** — see HANDOFF-PROMPT.md §8.
+
+---
+
+## v3.2.1 — 2026-09-07 (same day, first real live-model pass)
+
+Prompted directly by a comprehensive tool-by-tool test against the Snowdon Towers sample project
+(a real, non-trivial AEC model — curtain systems, cores, party walls, 55 sheets) plus building and
+testing a new script routine (`model-qa-report`) end to end. Two real bugs found this way, both
+root-caused in the actual code and fixed, not patched around:
+
+1. **Editing a script routine silently kept running the OLD code — no error, no warning.**
+   `RoutineScriptHost.cs`'s compiled-Type cache was keyed by routine id alone; `save_routine`
+   overwriting `Routine.cs` on disk never invalidated it, so every `run_routine` call after the first
+   kept reusing whatever Type got compiled the very first time that id was ever run — reproduced
+   live: `model-qa-report` was saved once with a bug, fixed and resaved, and `run_routine` (both via
+   MCP and the ribbon button) kept throwing the ORIGINAL bug's error until Revit restarted. Fixed:
+   the cache key now also carries an MD5 hash of the routine's own `.cs` file contents
+   (`RoutineScriptHost.ComputeSourceHash`); a hash mismatch forces a fresh compile into a fresh
+   assembly, and the old one is simply never used again (still resident in memory for the rest of the
+   session — .NET Framework genuinely can't unload it — but that is a memory-growth cost now, not a
+   correctness bug). Saving *and* editing a routine both now take effect on the very next
+   `run_routine` call, no restart. The ONE remaining restart-needed case is a brand-new routine's own
+   ribbon button, because Revit only builds ribbon panels at startup — unrelated, unavoidable, and
+   already stated honestly in AUTHORING.md and `save_routine`'s own response `note`.
+   [plugin/Routines/RoutineScriptHost.cs](plugin/Routines/RoutineScriptHost.cs)
+
+2. **`thin-wall-audit` (a shipped example routine) crashes on any real project with an in-place
+   FamilyInstance under the Walls category** (Snowdon Towers has several — curtain/solar-wall
+   systems) — `Unable to cast object of type 'FamilyInstance' to type 'Wall'`. Blind `.Cast<Wall>()`
+   after `OfCategory(OST_Walls).WhereElementIsNotElementType()` is the classic FilteredElementCollector
+   trap: that category is not guaranteed to contain only real `Wall` objects. Fixed by switching to
+   `.OfType<Wall>()` (silently skips anything that isn't a `Wall`) in both places it collects walls
+   (main model and, when `includeLinks` is on, each linked document). Fixed in the shipped example
+   ([examples/routines/thin-wall-audit/Routine.cs](examples/routines/thin-wall-audit/Routine.cs)) and
+   pushed live via `save_routine` to this machine's installed copy.
+
+**Also found, fixed in source, NOT yet redeployed** (would mean rebuilding/relaunching
+`AIConServer.exe` — the live MCP process a session is talking to over stdio; deliberately left for a
+deployment done on purpose, not as a side effect of an unrelated fix):
+
+3. **`run_code`'s documented `"confirmed": true` re-invocation never actually took effect** — called
+   twice with identical arguments plus `confirmed: true`, both times the response was the unexecuted
+   "confirmation_required" echo. Root cause: `shared/ToolRegistry.cs`'s published MCP schema for
+   `run_code` never declared a `confirmed` property (only `code` and `no_transaction`) even though
+   `ToolsExtended.cs`'s handler has required it since v3.2.0 — so the confirm-then-resend workflow
+   this version's changelog entry describes was never actually reachable through the MCP surface,
+   exactly the "not yet exercised against a live model" gap flagged above. Fixed: `confirmed` added to
+   the declared schema. [shared/ToolRegistry.cs](shared/ToolRegistry.cs)
+
+Builds clean (net48, and the server's net10.0). net48 rebuilt and deployed to this machine's live
+Revit 2024 Addins folder (old locked DLL renamed `.old` aside, as `install.ps1` already does) —
+takes effect on next Revit restart. `AIConServer.exe` was rebuilt to verify #3 compiles but was
+**not** redeployed this pass.
+
+**Still open, found live, not yet root-caused:**
+- `place_family_instance` for a door returned success (id + correct family/type) but the instance
+  never actually persisted — door count unchanged before/after, confirmed via `list_elements`. An
+  identical-pattern window placement in the same batch call worked correctly.
+- `tag_elements` on a Room failed with "no loaded tag type" even though the project has hundreds of
+  existing Room Tags — plausibly needs to `.Activate()` a `FamilySymbol` before first use in a
+  session.
+
+---
+
+## v3.2.2 — 2026-09-07 (ribbon result display)
+
+Prompted directly by confusion over the v3.2.1 fixes above: `model-qa-report` finally ran without
+error after the Revit restart, but clicking its ribbon button showed only a generic "1 step(s) ran"
+dialog — none of the actual report (warnings, thin/tall walls, empty sheets, ...) was visible anywhere.
+
+**Root cause:** `RoutineCommands.cs`'s ribbon success dialog always showed a fixed "N step(s) ran"
+message and silently discarded `result.ScriptResult` — the value a script routine's `return` produces.
+That is fine for a routine whose whole point is a model change (colour a wall, place a sheet — you see
+the effect in the model), but a `readOnly` report-style routine's entire output IS that return value;
+run from chat it reaches the AI as real JSON, but run from the ribbon there was no chat to hand it to,
+so it was just thrown away. Not a new bug — true since script routines could return structured data at
+all; only exposed once a routine was actually built around returning a report.
+
+**Fixed:** the popup now renders `result.ScriptResult` when present — bulleted, indented up to a few
+levels, camelCase keys humanized ("warningsByType" → "Warnings By Type"), long lists capped with an
+"…and N more" line and the whole thing capped around 3500 characters (TaskDialog does not scroll) with
+a "run from chat for the full result" note past that. A composed routine (no `ScriptResult`) keeps the
+original "N step(s) ran" message unchanged. Also corrected the footer: it always said "One Ctrl+Z
+undoes the whole routine", which is actively wrong for a `readOnly` routine that changed nothing — it
+now says so instead. [plugin/Routines/RoutineCommands.cs](plugin/Routines/RoutineCommands.cs)
+
+Builds clean (net48). Deployed to this machine's live Revit 2024 install; takes effect on next Revit
+restart (it's a change to the add-in itself, same platform limit as always — see AUTHORING.md §5).
+
+---
+
 ## v3.1.3 — 2026-09-06
 
 ### Script-routine bug batch (external field report)

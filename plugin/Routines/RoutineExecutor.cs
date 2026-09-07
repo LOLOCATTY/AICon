@@ -73,8 +73,10 @@ namespace AICon.Routines
                         try
                         {
                             // Dispatch handles its own transaction per mutating tool; the group above is
-                            // what makes the whole routine one undo entry.
-                            object stepResult = ToolDispatcher.Dispatch(app, step.Tool, args);
+                            // what makes the whole routine one undo entry. "routine" tags every step in
+                            // the audit log so a bad routine run is traceable to the routine, not just
+                            // to "something mutated the model".
+                            object stepResult = ToolDispatcher.Dispatch(app, step.Tool, args, "routine");
                             result.StepsRun++;
                             result.StepResults.Add(stepResult);
                             if (!string.IsNullOrWhiteSpace(step.SaveResultAs))

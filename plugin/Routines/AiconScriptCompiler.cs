@@ -39,11 +39,18 @@ namespace AICon.Routines
     ///   • a BARE BODY (statements only) — wrapped automatically with uiapp/uidoc/doc/input already in
     ///     scope, so a five-line routine is five lines.
     ///
-    /// PLATFORM NOTE (.NET Framework 4.8): the compiled assembly is loaded with Assembly.Load(byte[])
-    /// into the current AppDomain, which .NET Framework can never unload. Consequence: saving a NEW
-    /// routine works immediately, but EDITING an already-loaded routine needs a Revit restart to pick
-    /// up the new code. Collectible AssemblyLoadContext — which would allow live reload — is .NET Core
-    /// only, so this is a platform limit, not an oversight. It is documented in AUTHORING.md.
+    /// PLATFORM NOTE (.NET Framework 4.8): every call to Compile() loads its result with
+    /// Assembly.Load(byte[]) into the current AppDomain, which .NET Framework can never unload —
+    /// collectible AssemblyLoadContext, which would allow true in-place unloading, is .NET Core only.
+    /// That is a real, permanent memory-growth cost (each edit's old assembly stays resident for the
+    /// rest of the Revit session), but it is NOT the same thing as being unable to pick up new code:
+    /// RoutineScriptHost's own Type cache is keyed by (routine id, source hash), so calling this again
+    /// with edited source produces a fresh Type from a fresh assembly and RoutineScriptHost simply
+    /// stops using the old one. Saving a NEW routine works immediately; EDITING an existing one now
+    /// also takes effect on its very next run_routine call — no restart needed. The only thing that
+    /// still needs a Revit restart is a brand-new routine's own RIBBON BUTTON, because Revit only
+    /// builds ribbon panels at startup — a separate, genuine Revit API limit. Documented in
+    /// AUTHORING.md.
     /// </summary>
     internal static class AiconScriptCompiler
     {

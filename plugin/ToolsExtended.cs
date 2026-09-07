@@ -1721,16 +1721,44 @@ namespace AICon
         }
 
         // ---------- run_code: the escape hatch ----------
+        //
+        // run_code is its own trust tier (ToolTier.Unsandboxed) — always the strictest treatment
+        // available, regardless of what tier a general Mutating call gets: a mandatory confirm gate
+        // (below) and unconditional logging (including the no_transaction:true path, which used to have
+        // none at all), independent of AllowRunCode staying on by default. This is deliberate — see
+        // AiconRoutineSettings.cs's own comment on why AllowRunCode is on by default; per-call
+        // confirmation is the thing actually closing that gap, not the machine-wide switch.
 
-        private static object RunCode(UIApplication app, Document doc, Dictionary<string, object> args)
+        private static object RunCode(UIApplication app, Document doc, Dictionary<string, object> args, string frontDoor)
         {
             if (!AiconRoutineSettings.Load().AllowRunCode)
                 throw new InvalidOperationException(
                     "run_code is turned off on this machine. Set \"allowRunCode\": true in " +
-                    AiconRoutineSettings.FilePath + " and restart Revit to re-enable it.");
+                    AiconRoutineSettings.FilePath + " (no restart needed — this is checked fresh every run).");
 
             string code = Json.GetString(args, "code");
             if (string.IsNullOrEmpty(code)) throw new InvalidOperationException("'code' is required.");
+
+            // Mandatory confirmation, enforced as a required flag rather than a UI dialog — works
+            // identically across all three front doors (no stdio-vs-native-dialog split to design).
+            // This converts the old advisory-only "confirm before destructive code" instructions text
+            // into something actually enforced: the first call always just echoes the code back and
+            // stops, before any compile or execution happens.
+            bool confirmed = args.ContainsKey("confirmed") && args["confirmed"] is bool cf && cf;
+            if (!confirmed)
+            {
+                AuditLog.Write("run_code", ToolDispatcher.ToolTier.Unsandboxed, frontDoor,
+                    "confirmation requested, not run yet", null, true, null);
+                return new Dictionary<string, object>
+                {
+                    { "confirmation_required", true },
+                    { "code_to_run", code },
+                    { "message", "run_code did NOT run yet — this is unreviewed C# with full Revit API " +
+                                 "access. Review the code above, then call run_code again with the SAME " +
+                                 "arguments plus \"confirmed\": true to actually execute it." }
+                };
+            }
+
             bool useTransaction = !(args.ContainsKey("no_transaction") && args["no_transaction"] is bool nt && nt);
 
             // Roslyn (same compiler/reference strategy as script Routines, AiconScriptCompiler.cs) —
@@ -1742,6 +1770,8 @@ namespace AICon
                 var sb = new StringBuilder("C# compile errors:\n");
                 foreach (ScriptDiagnostic err in compiled.Errors.Take(25))
                     sb.AppendLine(err.ToString());
+                AuditLog.Write("run_code", ToolDispatcher.ToolTier.Unsandboxed, frontDoor, null, null,
+                    false, "did not compile: " + sb);
                 throw new InvalidOperationException(sb.ToString());
             }
 
@@ -1757,13 +1787,29 @@ namespace AICon
                 }
             };
 
-            object result = useTransaction
-                ? InTransaction(doc, "AICon: run_code", invoke)
-                : invoke();
+            try
+            {
+                object result = useTransaction
+                    ? InTransaction(doc, "AICon: run_code", invoke)
+                    : invoke();
 
-            // Make sure whatever came back can survive JSON serialization.
-            try { Json.Serialize(result); return result; }
-            catch { return result != null ? result.ToString() : null; }
+                AuditLog.Write("run_code", ToolDispatcher.ToolTier.Unsandboxed, frontDoor,
+                    Truncate(code, 300), null, true, useTransaction ? null : "ran with no_transaction:true");
+
+                // Make sure whatever came back can survive JSON serialization.
+                try { Json.Serialize(result); return result; }
+                catch { return result != null ? result.ToString() : null; }
+            }
+            catch (Exception ex)
+            {
+                AuditLog.Write("run_code", ToolDispatcher.ToolTier.Unsandboxed, frontDoor,
+                    Truncate(code, 300), null, false,
+                    (useTransaction ? "" : "[no_transaction:true] ") + ex.Message);
+                throw;
+            }
         }
+
+        private static string Truncate(string s, int max) =>
+            s != null && s.Length > max ? s.Substring(0, max) + "…" : s;
     }
 }

@@ -16,6 +16,11 @@ namespace AICon
         public string Tool;
         public Dictionary<string, object> Args;
         public string ResultJson;
+        // Which front door this call came from ("mcp" or "in_revit_panel") — the closest honest answer
+        // AICon has to "who" for the audit log (AuditLog.cs), since there is no user/session identity
+        // anywhere in this product. Set by the caller that creates the job; defaults to "unknown" if a
+        // caller forgets, rather than failing the call over a missing label.
+        public string Source = "unknown";
         public readonly ManualResetEventSlim Done = new ManualResetEventSlim(false);
     }
 
@@ -30,7 +35,7 @@ namespace AICon
             {
                 try
                 {
-                    object data = ToolDispatcher.Dispatch(app, job.Tool, job.Args ?? new Dictionary<string, object>());
+                    object data = ToolDispatcher.Dispatch(app, job.Tool, job.Args ?? new Dictionary<string, object>(), job.Source);
                     job.ResultJson = Json.Serialize(new Dictionary<string, object> { { "ok", true }, { "data", data } });
                 }
                 catch (Exception ex)
@@ -160,7 +165,7 @@ namespace AICon
                 using (var reader = new StreamReader(ctx.Request.InputStream, Encoding.UTF8))
                     body = reader.ReadToEnd();
 
-                var job = new BridgeJob();
+                var job = new BridgeJob { Source = "mcp" };
                 try
                 {
                     var request = Json.DeserializeObject(body);

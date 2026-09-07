@@ -149,6 +149,10 @@ must read. Ask for what changes; hard-code what doesn't.
   Inside a longer string it is substituted as text.
 - `continueOnError: true` for a step that is genuinely optional. Default is **all-or-nothing**: any
   failure rolls the entire routine back.
+- `run_code` may **not** appear as a step's `tool`. It is the one tool with a mandatory per-call
+  confirmation gate (see §6), which a composed routine — meant to run unattended from a ribbon button —
+  cannot answer. `save_routine` rejects a step naming it. Need arbitrary C#? Use a `script` routine
+  instead; it is reviewed once, at save time, and then runs at full speed with no per-run gate.
 
 **Atomicity:** every step runs inside one transaction group. The routine either fully happens or
 fully doesn't, and the user needs exactly one Ctrl+Z.
@@ -200,11 +204,25 @@ generated wrapper. Fix and resend.
 `List<T>`, `Dictionary<K,V>`, LINQ — all normal. (There is folklore that angle brackets break in
 AICon; it was tested and is **not true**, in `run_code` either. Write ordinary C#.)
 
+### `run_code` (not a routine — the separate escape-hatch tool) now requires confirmation
+
+Unlike a script routine (reviewed once, at save time), `run_code` compiles and runs whatever C# it is
+given immediately, with no prior review. Every call now needs `"confirmed": true` in its arguments; a
+call without it does not compile or execute anything — it just echoes the code back so it can be
+reviewed first. Call `run_code` again with the same arguments plus `"confirmed": true` to actually run
+it. This does not affect routines of either kind at all — see the step restriction above.
+
 ### One platform limit, stated plainly
 
-On Revit 2023/2024 (.NET Framework 4.8) a compiled routine **cannot be unloaded**. Saving a *new*
-routine works immediately; **editing an existing one needs a Revit restart** to take effect. Live
-reload needs .NET (Core) and is not available here.
+On Revit 2023/2024 (.NET Framework 4.8) a compiled assembly **cannot be unloaded** — collectible
+AssemblyLoadContext, which would allow that, is .NET Core only. Saving a routine and editing an
+existing one **both** take effect on the very next `run_routine` call, no restart needed: the host
+caches a routine's compiled Type keyed by its own source hash, so editing the `.cs` file produces a
+new hash, a fresh compile, and a fresh Type; the old assembly simply stops being used (it stays
+resident in memory for the rest of the session — a real but small cost, not a correctness problem).
+The one thing that still needs a Revit restart is a **brand-new** routine's own ribbon button, because
+Revit only builds ribbon panels at startup — a separate, genuine Revit API limit unrelated to
+compilation.
 
 ---
 

@@ -13,10 +13,13 @@ bool includeLinks = input.Bool("includeLinks", false);
 var byType = new Dictionary<string, List<int>>();
 int scanned = 0;
 
+// .OfType<Wall>(), not .Cast<Wall>(): OST_Walls can also contain in-place FamilyInstance
+// elements (e.g. a curtain/solar-panel system authored under the Walls category), and a
+// blind Cast<Wall>() throws on the first one it meets. OfType<Wall>() just skips them.
 foreach (Wall w in new FilteredElementCollector(doc)
              .OfCategory(BuiltInCategory.OST_Walls)
              .WhereElementIsNotElementType()
-             .Cast<Wall>())
+             .OfType<Wall>())
 {
     scanned++;
     double widthMm = w.Width * 304.8;          // Revit is in feet; AICon reports millimetres
@@ -38,7 +41,7 @@ if (includeLinks)
         if (ldoc == null) continue;             // link unloaded
         foreach (Wall w in new FilteredElementCollector(ldoc)
                      .OfCategory(BuiltInCategory.OST_Walls)
-                     .WhereElementIsNotElementType().Cast<Wall>())
+                     .WhereElementIsNotElementType().OfType<Wall>())
             if (w.Width * 304.8 < maxMm) linkedHits++;
     }
 }

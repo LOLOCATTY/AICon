@@ -98,11 +98,29 @@ namespace AICon.Routines
                 return Result.Failed;
             }
 
+            // A composed routine's result IS the steps it ran on the model — "N step(s) ran" plus
+            // looking at the model is the whole story. A SCRIPT routine can instead `return` an actual
+            // report (model-qa-report, thin-wall-audit, ...) meant to be READ, not looked at — and
+            // until now that value was silently thrown away here: triggered from chat it reaches the AI
+            // as real JSON, but triggered from this ribbon dialog there is no chat to read it to, so the
+            // user saw only "1 step(s) ran" with no way to know what the routine actually found. Show it.
+            string content = result.ScriptResult != null
+                ? FormatScriptResult(result.ScriptResult)
+                : result.StepsRun + " step(s) ran.";
+            const int maxChars = 3500;   // TaskDialog does not scroll — an unbounded report would just make an unusable giant window
+            if (content.Length > maxChars)
+                content = content.Substring(0, maxChars).TrimEnd() +
+                          "\n\n…output truncated — ask the AICon chat to run \"" + routine.Name + "\" for the full result.";
+
             new TaskDialog("AICon Routines")
             {
                 MainInstruction = routine.Name + " finished",
-                MainContent = result.StepsRun + " step(s) ran.",
-                FooterText = "One Ctrl+Z undoes the whole routine."
+                MainContent = content.TrimEnd(),
+                // A read-only routine changes nothing, so "Ctrl+Z undoes it" is not just unnecessary
+                // reassurance, it is actively wrong — say what's actually true instead.
+                FooterText = routine.ReadOnly
+                    ? "Read-only — nothing in the model was changed."
+                    : "One Ctrl+Z undoes the whole routine."
             }.Show();
             return Result.Succeeded;
         }
@@ -115,6 +133,89 @@ namespace AICon.Routines
                 MainContent = ex.Message,
                 FooterText = "Full details: " + App.LogPath
             }.Show();
+        }
+
+        /// <summary>
+        /// Renders whatever a script routine returned — typically a Dictionary&lt;string,object&gt;
+        /// built by ordinary user C# (RoutineScriptHost.Run sets result.ScriptResult straight from the
+        /// routine's own `return`), so this only ever sees plain IDictionary/IEnumerable/string/number/
+        /// bool — never a JsonElement or anything requiring a JSON library. Bulleted, indented,
+        /// camelCase keys humanized — matching this file's existing hand-built summaries (see
+        /// ShopDrawings.ShowSummary) rather than looking like raw JSON dumped into a Revit dialog.
+        /// </summary>
+        private static string FormatScriptResult(object value, int indent = 0)
+        {
+            const int maxListItems = 20;
+            string pad = new string(' ', indent * 2);
+            var sb = new StringBuilder();
+
+            var dict = value as IDictionary<string, object>;
+            if (dict != null)
+            {
+                foreach (KeyValuePair<string, object> kv in dict)
+                {
+                    string label = HumanizeKey(kv.Key);
+                    var nestedDict = kv.Value as IDictionary<string, object>;
+                    var nestedList = kv.Value is string ? null : kv.Value as System.Collections.IEnumerable;
+
+                    if (nestedDict != null)
+                    {
+                        sb.AppendLine(pad + label + ":");
+                        sb.Append(FormatScriptResult(nestedDict, indent + 1));
+                    }
+                    else if (nestedList != null)
+                    {
+                        List<object> items = nestedList.Cast<object>().ToList();
+                        if (items.Count == 0) { sb.AppendLine(pad + label + ": (none)"); continue; }
+                        sb.AppendLine(pad + label + ":");
+                        int shown = 0;
+                        foreach (object item in items)
+                        {
+                            if (shown++ >= maxListItems)
+                            {
+                                sb.AppendLine(pad + "  …and " + (items.Count - maxListItems) + " more");
+                                break;
+                            }
+                            var itemDict = item as IDictionary<string, object>;
+                            sb.AppendLine(pad + "  • " + (itemDict != null
+                                ? string.Join(", ", itemDict.Select(p => HumanizeKey(p.Key) + "=" + FormatScalar(p.Value)))
+                                : FormatScalar(item)));
+                        }
+                    }
+                    else
+                    {
+                        sb.AppendLine(pad + label + ": " + FormatScalar(kv.Value));
+                    }
+                }
+                return sb.ToString();
+            }
+
+            var list = value is string ? null : value as System.Collections.IEnumerable;
+            if (list != null)
+            {
+                foreach (object item in list) sb.AppendLine(pad + "• " + FormatScalar(item));
+                return sb.ToString();
+            }
+
+            return pad + FormatScalar(value);
+        }
+
+        private static string FormatScalar(object v) =>
+            v == null ? "—" : Convert.ToString(v, System.Globalization.CultureInfo.InvariantCulture);
+
+        /// <summary>"warningsByType" -&gt; "Warnings By Type" — a routine author writes camelCase for
+        /// their own code's convenience; a Revit user reading a popup should not have to.</summary>
+        private static string HumanizeKey(string key)
+        {
+            if (string.IsNullOrEmpty(key)) return key;
+            var sb = new StringBuilder();
+            for (int i = 0; i < key.Length; i++)
+            {
+                char c = key[i];
+                if (i > 0 && char.IsUpper(c) && !char.IsUpper(key[i - 1])) sb.Append(' ');
+                sb.Append(i == 0 ? char.ToUpperInvariant(c) : c);
+            }
+            return sb.ToString();
         }
     }
 

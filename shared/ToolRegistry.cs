@@ -611,10 +611,13 @@ public static class Tools
                 "Runs inside a transaction automatically (set no_transaction=true for read-only code). " +
                 "Compiler is Roslyn (modern C#) — string interpolation ($\"...\"), ?., 'var', pattern matching, LINQ all work normally. " +
                 "Available namespaces: Autodesk.Revit.DB (+Architecture/Structure/Mechanical/Plumbing/Electrical), Autodesk.Revit.UI, System, System.Linq, System.Collections.Generic. " +
-                "Revit internal units are FEET — convert mm/304.8. Return a string/number/Dictionary<string,object>/List<object> describing the result.",
+                "Revit internal units are FEET — convert mm/304.8. Return a string/number/Dictionary<string,object>/List<object> describing the result. " +
+                "REQUIRES CONFIRMATION: a call without \"confirmed\": true does not compile or execute anything — it only echoes the code back " +
+                "so it can be reviewed first. Call again with the SAME arguments plus \"confirmed\": true to actually run it.",
                 new() {
                     ["code"] = Prop("string", "C# statements; must return object"),
-                    ["no_transaction"] = new JsonObject { ["type"] = "boolean", ["description"] = "true = don't wrap in a transaction (read-only code)" }
+                    ["no_transaction"] = new JsonObject { ["type"] = "boolean", ["description"] = "true = don't wrap in a transaction (read-only code)" },
+                    ["confirmed"] = new JsonObject { ["type"] = "boolean", ["description"] = "Must be true to actually compile and run. Omit (or false) on the first call to review the code first; the response then echoes it back unexecuted." }
                 }, new[] { "code" })
         );
     }

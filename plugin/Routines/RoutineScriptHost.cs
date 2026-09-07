@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Security.Cryptography;
+using System.Text;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 
@@ -86,14 +89,55 @@ namespace AICon.Routines
     }
 
     /// <summary>
-    /// Compiles (once per session) and runs script routines. Compiled assemblies are cached by routine
-    /// id — .NET Framework cannot unload them anyway, so re-compiling the same routine repeatedly would
-    /// only leak more.
+    /// Compiles and runs script routines, caching the compiled Type by routine id so a routine that
+    /// hasn't changed doesn't get recompiled on every click. .NET Framework can never unload an
+    /// assembly once loaded, so the cache also carries a hash of the routine's own source: a hit only
+    /// reuses the cached Type when the source on disk still matches what produced it. save_routine
+    /// overwriting the .cs file with new content changes the hash, so the very next run_routine call
+    /// compiles the new code fresh (into a NEW assembly — the OLD one stays resident in memory, since
+    /// it still can't be unloaded, but it is simply never used again). This is what makes editing an
+    /// existing routine take effect without restarting Revit; only a brand-new routine's own RIBBON
+    /// BUTTON still needs a restart to appear, because Revit only builds ribbon panels at startup —
+    /// that part is a genuinely separate Revit API limit, unrelated to this cache.
     /// </summary>
     internal static class RoutineScriptHost
     {
-        private static readonly Dictionary<string, Type> Cache =
-            new Dictionary<string, Type>(StringComparer.OrdinalIgnoreCase);
+        private sealed class CachedRoutine
+        {
+            internal Type Type;
+            internal string SourceHash;
+        }
+
+        private static readonly Dictionary<string, CachedRoutine> Cache =
+            new Dictionary<string, CachedRoutine>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Hashes the routine's own script files (name, length and content, in declared order) so the
+        /// cache can tell "same code" from "edited since last run". This only has to catch "did the
+        /// source change", not resist a deliberately adversarial collision, so plain framing is enough.
+        /// Returns null on any read failure — the caller then always falls through to a real compile,
+        /// whose own error path (missing file, etc.) is the correct thing to surface, not a silently
+        /// stale cache hit.
+        /// </summary>
+        private static string ComputeSourceHash(Routine routine)
+        {
+            if (routine.Script == null || routine.Script.Files == null || routine.Script.Files.Count == 0)
+                return null;
+            try
+            {
+                var sb = new StringBuilder();
+                foreach (string name in routine.Script.Files)
+                {
+                    string path = Path.Combine(routine.FolderPath ?? "", Path.GetFileName(name));
+                    string content = File.ReadAllText(path);
+                    sb.Append(Path.GetFileName(path)).Append(':').Append(content.Length).Append('\n')
+                      .Append(content).Append('\n');
+                }
+                using (MD5 md5 = MD5.Create())
+                    return BitConverter.ToString(md5.ComputeHash(Encoding.UTF8.GetBytes(sb.ToString())));
+            }
+            catch { return null; }
+        }
 
         internal static RoutineRunResult Run(UIApplication app, Routine routine, Dictionary<string, object> inputs)
         {
@@ -126,8 +170,21 @@ namespace AICon.Routines
             Dictionary<string, object> bound = RoutineExecutor.BindInputs(routine, inputs, out inputProblem);
             if (inputProblem != null) { result.Error = inputProblem; return result; }
 
+            // Cache hit only when the routine's own source still matches what produced the cached Type —
+            // see ComputeSourceHash and the class doc comment above. currentHash is computed even on
+            // what will be a cache hit; it's a couple of tiny file reads plus an MD5 of a few KB, cheap
+            // next to actually compiling.
+            string currentHash = ComputeSourceHash(routine);
+
             Type routineType;
-            if (!Cache.TryGetValue(routine.Id, out routineType))
+            CachedRoutine cached;
+            bool haveCachedHit = Cache.TryGetValue(routine.Id, out cached)
+                                 && currentHash != null && cached.SourceHash == currentHash;
+            if (haveCachedHit)
+            {
+                routineType = cached.Type;
+            }
+            else
             {
                 ScriptCompileResult compiled = AiconScriptCompiler.CompileRoutine(routine);
                 if (!compiled.Success)
@@ -144,7 +201,7 @@ namespace AICon.Routines
                     result.Error = "The code compiled but contains no class implementing IAiconRoutine.";
                     return result;
                 }
-                Cache[routine.Id] = routineType;
+                Cache[routine.Id] = new CachedRoutine { Type = routineType, SourceHash = currentHash };
             }
 
             Document doc = uidoc.Document;

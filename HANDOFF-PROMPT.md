@@ -4,7 +4,7 @@
 > It describes what AICon is, how it is built, exactly where development has got to, and the
 > non-obvious rules that were learned the hard way.
 >
-> **Current state: v3.1.3 · 2026-09-06 · Revit 2023–2027 (compiled; 2023/2024 live-verified,
+> **Current state: v3.2.0 · 2026-09-07 · Revit 2023–2027 (compiled; 2023/2024 live-verified,
 > 2025/2026/2027 compiled-only) · .NET Framework 4.8 (net48) + .NET 8 (net8.0-windows) + .NET 10
 > (net10.0-windows / net10.0-windows-2027)**
 
@@ -173,6 +173,28 @@ Rules that must be preserved:
 - Everything is logged to `%APPDATA%\AICon\decisions.log`. **Read this first when a decision
   "did nothing".** It has solved two mysteries already.
 
+### Tool-execution safety layers (Router / Preview / Log) — separate from the AI-decision layer above
+
+Every `Mutating`/`Unsandboxed` tool call goes through a router → preview → log pipeline in
+`ToolDispatcher.cs`, independent of and unrelated to the AI-decision calls above:
+- **Router** (`ToolTier`: `Read` / `Mutating` / `Bulk` / `Unsandboxed`) — `run_code` is always
+  `Unsandboxed`; a normally-`Mutating` call escalates to `Bulk` past a configurable element/op count
+  (`AiconRoutineSettings.BulkElementThreshold` / `BulkBatchOpThreshold`, defaults 50/20).
+- **Preview** (`BuildPreviewSummary`) — a best-effort, **non-blocking** "what this will do" summary
+  attached to the result (e.g. "12 Walls, 3 Doors"). Informational only; never gates execution, so it
+  never stalls an unattended Routine run.
+- **Log** (`Services/AuditLog.cs`) — every resolved `Mutating`/`Bulk`/`Unsandboxed` operation writes
+  one JSON-line to `%APPDATA%\AICon\audit.log` (tool, tier, `front_door` — `mcp`/`in_revit_panel`/
+  `routine`, since AICon has no real user identity —, summary, element ids, success/error). Separate
+  file from `bridge.log` and `decisions.log`. A `batch`'s per-op entries are only written after the
+  whole transaction actually commits — an all-or-nothing batch that rolls back logs one honest
+  "rolled back" line instead of a misleading trail of per-op "successes."
+- **`run_code`** is the one tool with a mandatory, blocking gate: every call needs `"confirmed": true`
+  or it only echoes the code back without compiling/running it. Composed routines may not name
+  `run_code` as a step (`RoutineModel.Validate()` rejects it) — **script routines are entirely
+  unaffected**, since `RoutineScriptHost.Run` never calls `run_code` at all; a saved routine still runs
+  at full, unattended speed with no confirmation gate, exactly as before.
+
 ---
 
 ## 7. Rules learned the hard way — do not relearn these
@@ -213,14 +235,54 @@ walls 2648.3 mm apart centre-to-centre returned exactly **2448.3 mm**); the chat
 Gemini/DeepSeek/local; AI level-mapping; the Excel register reader; **the routine pipeline end-to-end**
 (`save_routine` → `list_routines` → `run_routine` all exercised live).
 
-**Built but NOT yet exercised in Revit:** AR400's automatic **grid dimension strings** and the **bulk
-wall-pair dimensioning** pass (the primitive *is* verified, the batch pass is not); title-block strip
-auto-detection; the v2.16.0 performance fixes; the routine **ribbon buttons and input form** (the
-engine is proven, the WPF layer has not been clicked yet); running a **script** routine inside Revit
-(its C# was compile-verified offline against the real Revit API + AICon.dll, but never executed).
+**v3.2.0's Router/Preview/Log layers + running a SCRIPT routine inside Revit — now actually exercised**
+(2026-09-07, against Snowdon Towers, a real non-trivial sample: curtain systems, cores, 55 sheets),
+closing the "never yet exercised against a live model" gap this section used to flag. Two real bugs
+found this way, both fixed — see CHANGELOG.md's v3.2.1/v3.2.2 entries for the full detail:
+1. **Routine edits were silently invisible without a Revit restart** — `RoutineScriptHost`'s compiled-
+   Type cache was keyed by routine id alone, so `save_routine` overwriting a script's `.cs` file never
+   invalidated it; every `run_routine` after the first kept running whatever compiled the very first
+   time that id was ever run. Fixed: cache key now also carries an MD5 hash of the routine's own
+   source, so an edit is picked up on its very next run — proven live (edited a threshold from 100→120,
+   reran with no restart, the reported count changed immediately). The one remaining restart-needed
+   case is a brand-new routine's own ribbon button (Revit only builds ribbon panels at startup — a
+   separate, genuine Revit API limit).
+2. **`thin-wall-audit`'s blind `.Cast<Wall>()` crashes on any real project with an in-place
+   FamilyInstance under the Walls category** (Snowdon Towers has several — curtain/solar-wall
+   systems). Fixed with `.OfType<Wall>()`.
 
-**Installed on this machine right now:** 3 routines — `level-sheet-set`, `tall-wall-check`
-(composed), `thin-wall-audit` (script). **Code execution is ENABLED.**
+**Also found the SAME session, root-caused, fixed in source but deliberately NOT redeployed:**
+`run_code`'s documented `"confirmed": true` gate never actually took effect through MCP —
+`shared/ToolRegistry.cs`'s published schema never declared a `confirmed` property, so no strict MCP
+client could ever pass it through even though `ToolsExtended.cs`'s handler has required it since
+v3.2.0. Fixed in source (builds clean); needs `AIConServer.exe` rebuilt AND relaunched to take effect —
+left alone this pass since that is the live process a session talks to over stdio, not something to
+swap out as a side effect of an unrelated fix.
+
+**Ribbon UX gap found and fixed the same session:** a script routine's `return` value (its whole point
+for a report-style routine like `model-qa-report`) was silently discarded when run from the ribbon —
+the popup only ever said "N step(s) ran", with no way to see what the routine actually found unless it
+was run from chat instead. `RoutineCommands.cs` now renders the returned value (bulleted, indented,
+camelCase keys humanized) directly in the popup, and no longer claims "Ctrl+Z undoes it" for a
+`readOnly` routine that changed nothing.
+
+**Still built but NOT yet exercised in Revit:** AR400's automatic **grid dimension strings** and the
+**bulk wall-pair dimensioning** pass (the primitive *is* verified, the batch pass is not); title-block
+strip auto-detection; the v2.16.0 performance fixes; the routine **ribbon buttons and input form** (the
+engine is proven, the WPF layer has not been clicked yet). First things to actually click: a `Bulk`-tier
+delete, `run_code` without then with `confirmed:true` (once `AIConServer.exe` picks up the fix above),
+and confirming a `run_code` step is rejected from a composed routine at save time.
+
+**Two new bugs found live, NOT yet root-caused:**
+- `place_family_instance` for a door returned success (id + correct family/type) but the instance never
+  actually persisted — door count unchanged before/after, confirmed via `list_elements`. An identical-
+  pattern window placement in the same batch call worked correctly.
+- `tag_elements` on a Room failed with "no loaded tag type" even though the project has hundreds of
+  existing Room Tags — plausibly needs to `.Activate()` a `FamilySymbol` before first use in a session.
+
+**Installed on this machine right now:** the 8 stock routines plus `model-qa-report` (script,
+read-only — one-click warnings/thin-tall-walls/room/mark/empty-sheet audit, built and proven this
+session). **Code execution is ENABLED.**
 
 **Loose end:** a test dimension (id 1495387, view `00-GROUND`) left in the live model from verifying
 `create_wall_dimension`. Harmless; delete when convenient.
@@ -248,11 +310,38 @@ fixes): see [`CHANGELOG.md`](CHANGELOG.md).
 5. Adding a tool = implement in `ToolsExtended.cs` + `case` in `ToolDispatcher.cs` + add to `Mutating`
    if it writes + schema in `shared/ToolRegistry.cs` (+ the local subset if a small model should see it).
 6. Keep comments explaining **why**, not what. The existing ones carry hard-won context.
-7. Bump the version in `plugin/App.cs`, `plugin/AICon.csproj` and `scripts/build-package.ps1`
-   together, then run `scripts/build-package.ps1`.
+7. Bump the version in `plugin/AICon.csproj`'s `<Version>` only, then run
+   `scripts/build-package.ps1` — `App.cs` and `build-package.ps1` both read it from there at
+   build time, not a second hand-typed copy (confirmed while doing the v3.2.0 bump).
 
 ## 10. Discussed, not started
 Batch PDF export per package named from the register · a pre-issue QA check (missing templates,
 unnumbered sheets, untagged rooms, views off-sheet) · revision/issue management · an L1 "record the
 calls I just made" recorder (currently the agent authors routine JSON directly, which is simpler and
 works from every front door).
+
+**Autodesk Marketplace publishing — planned, not started (2026-09-07).** Full plan approved and
+saved at `C:\Users\h.yousef\.claude\plans\robust-discovering-sundae.md` (a Claude Code plan file,
+not part of this repo) — paste/read that file at the start of a session to resume this thread
+without re-researching it. Goal: list AICon on the Autodesk Design and Make Marketplace
+(apps.autodesk.com) as a **$10/month subscription**. Key facts already researched and confirmed
+(sources in that chat session, not repeated here): the marketplace bills recurring subscriptions
+natively (no need to build our own Stripe billing); current publisher commission is **0.0%**
+(Autodesk can change this unilaterally); Autodesk provides a ready-made **Entitlement API**
+(`apps.autodesk.com/webservices/checkentitlement`) to check a signed-in user's paid status at
+runtime; Autodesk has a dedicated **MCP Publisher track** (Tool Manifest, `ai_llm_providers`
+disclosure, a Publisher Declaration Form) that fits AICon better than the generic Revit-plugin
+track, and Autodesk's own June 2026 blog post shipping their own (read-only) Revit MCP server
+explicitly welcomes third-party MCP servers alongside it. **Four decisions already locked with the
+owner:** (1) publish under the individual name Hossam Yousef, no company needed; (2) build a
+separate, cleaned **public** distribution for the listing — this repo (with HORIZON TOWER
+references etc.) stays the internal working copy, never goes public. **Reinforced 2026-09-07: the
+Marketplace work must live in a genuinely separate folder/repo, not a subfolder or branch of this
+one** — nothing for that effort is ever committed to or pushed from
+`S:\HOSSAM\BadBoy_3\AICon`/`github.com/LOLOCATTY/AICon`; (3) `run_code` ships
+**locked off by default** in the public build only (seed `routines.json` with
+`"allowRunCode": false` in the public installer — no source fork needed, reuses
+`AiconRoutineSettings` as-is); (4) pursue the MCP Publisher track specifically. **Status:** the
+plan is approved but execution has not started — the owner was asked which section to begin with
+(public-distribution split + Tool Manifest generation vs. drafting the Privacy Policy/Declaration
+Form) and deferred the choice for a later session. Ask again before picking a starting point.

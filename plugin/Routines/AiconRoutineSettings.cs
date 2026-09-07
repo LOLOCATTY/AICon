@@ -27,6 +27,13 @@ namespace AICon.Routines
         // owner can turn it OFF later (e.g. before handing AICon to a second, less-trusted user).
         [JsonPropertyName("allowRunCode")] public bool AllowRunCode { get; set; } = true;
 
+        // Router layer (ToolDispatcher.ResolveTier / RunBatch): a normally-Mutating call escalates to
+        // the Bulk tier when it touches more elements/operations than this — tunable here rather than
+        // hardcoded, since the right number depends on the model and how the owner actually works.
+        // Starting values, not final: revisit after real use.
+        [JsonPropertyName("bulkElementThreshold")] public int BulkElementThreshold { get; set; } = 50;
+        [JsonPropertyName("bulkBatchOpThreshold")] public int BulkBatchOpThreshold { get; set; } = 20;
+
         private static readonly JsonSerializerOptions JsonOpts =
             new JsonSerializerOptions { WriteIndented = true, PropertyNameCaseInsensitive = true };
 

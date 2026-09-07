@@ -9,6 +9,8 @@ using Autodesk.Revit.UI;
 
 namespace AICon
 {
+    using AICon.Routines;
+
     /// <summary>
     /// Executes named tools against the active Revit document.
     /// All lengths/coordinates cross the wire in MILLIMETERS; Revit internal units are feet.
@@ -20,17 +22,61 @@ namespace AICon
         private static double MmToFt(double mm) { return mm / MmPerFoot; }
         private static double FtToMm(double ft) { return ft * MmPerFoot; }
 
-        public static object Dispatch(UIApplication app, string tool, Dictionary<string, object> args)
+        /// <summary>
+        /// The dispatch entry point. 'frontDoor' identifies which of the three ways into AICon this
+        /// call came from ("mcp", "in_revit_panel", "routine") — AICon has no user/session identity
+        /// anywhere, so this is the closest honest answer to "who" for the audit log (AuditLog.cs).
+        /// Defaults to "unknown" only for safety against a caller that forgets to pass it.
+        /// </summary>
+        public static object Dispatch(UIApplication app, string tool, Dictionary<string, object> args, string frontDoor = "unknown")
         {
             UIDocument uidoc = app.ActiveUIDocument;
             if (uidoc == null || uidoc.Document == null)
                 throw new InvalidOperationException("No Revit document is open. Open a project in Revit first.");
             Document doc = uidoc.Document;
 
-            if (tool == "batch") return RunBatch(app, uidoc, doc, args);
-            if (Mutating.Contains(tool))
-                return InTransaction(doc, "AICon: " + tool.Replace('_', ' '), () => ExecuteCore(app, uidoc, doc, tool, args));
-            return ExecuteCore(app, uidoc, doc, tool, args);
+            // run_code is its own trust tier (Unsandboxed) with its own confirm gate and unconditional
+            // logging, handled entirely inside RunCode itself — it must not also get the generic
+            // Mutating preview/log wrapping below (that would log it twice, once wrong).
+            if (tool == "run_code") return ExecuteCore(app, uidoc, doc, tool, args, frontDoor);
+            if (tool == "batch") return RunBatch(app, uidoc, doc, args, frontDoor);
+
+            ToolTier tier = ResolveTier(tool, args);
+            if (tier == ToolTier.Read) return ExecuteCore(app, uidoc, doc, tool, args, frontDoor);
+
+            // Preview is best-effort and informational only (never blocks execution, never throws) —
+            // computed from the same args the real tool will use, before any transaction opens.
+            string preview = null;
+            try { preview = BuildPreviewSummary(doc, tool, args); } catch { }
+
+            try
+            {
+                object result = InTransaction(doc, "AICon: " + tool.Replace('_', ' '),
+                    () => ExecuteCore(app, uidoc, doc, tool, args, frontDoor));
+                AttachSummary(result, preview);
+                AuditLog.Write(tool, tier, frontDoor, preview, TryExtractIds(args), true, null);
+                return result;
+            }
+            catch (Exception ex)
+            {
+                AuditLog.Write(tool, tier, frontDoor, preview, TryExtractIds(args), false,
+                    ex.InnerException != null ? ex.InnerException.Message : ex.Message);
+                throw;
+            }
+        }
+
+        /// <summary>Risk tier for a tool call — the "Router" layer. Read tools stay exactly as fast as
+        /// before (no preview, no log). run_code and 'batch' are resolved by their own callers, not
+        /// here (run_code is always Unsandboxed; batch's tier depends on its operations).</summary>
+        internal enum ToolTier { Read, Mutating, Bulk, Unsandboxed }
+
+        private static ToolTier ResolveTier(string tool, Dictionary<string, object> args)
+        {
+            if (!Mutating.Contains(tool)) return ToolTier.Read;
+            List<object> ids = Json.GetList(args, "element_ids");
+            int bulkThreshold = AiconRoutineSettings.Load().BulkElementThreshold;
+            if (ids != null && ids.Count > bulkThreshold) return ToolTier.Bulk;
+            return ToolTier.Mutating;
         }
 
         /// <summary>Tools that modify the document and therefore need a transaction.</summary>
@@ -59,8 +105,9 @@ namespace AICon
             "batch", "run_code", "export_pdf", "export_ifc", "export_view_image", "save_document"
         };
 
-        /// <summary>Runs one tool WITHOUT opening a transaction (the caller decides the transaction strategy).</summary>
-        private static object ExecuteCore(UIApplication app, UIDocument uidoc, Document doc, string tool, Dictionary<string, object> args)
+        /// <summary>Runs one tool WITHOUT opening a transaction (the caller decides the transaction strategy).
+        /// 'frontDoor' is only actually used by the "run_code" case below — every other case ignores it.</summary>
+        private static object ExecuteCore(UIApplication app, UIDocument uidoc, Document doc, string tool, Dictionary<string, object> args, string frontDoor)
         {
             switch (tool)
             {
@@ -151,7 +198,7 @@ namespace AICon
                 case "create_column": return CreateColumn(doc, args);
                 case "create_beam": return CreateBeam(doc, args);
                 case "create_opening": return CreateOpening(doc, args);
-                case "run_code": return RunCode(app, doc, args); // manages its own transaction
+                case "run_code": return RunCode(app, doc, args, frontDoor); // manages its own transaction, confirm gate + logging
                 default:
                     throw new InvalidOperationException("Unknown tool: " + tool + "." + SuggestTools(tool));
             }
@@ -177,52 +224,101 @@ namespace AICon
         /// Executes many operations in ONE call and ONE transaction — the fast path for bulk work
         /// (e.g. 36 plans + 36 sheets + 36 viewports in a single round-trip instead of 108).
         /// </summary>
-        private static object RunBatch(UIApplication app, UIDocument uidoc, Document doc, Dictionary<string, object> args)
+        private static object RunBatch(UIApplication app, UIDocument uidoc, Document doc, Dictionary<string, object> args, string frontDoor)
         {
             List<object> ops = Json.GetList(args, "operations");
             if (ops == null || ops.Count == 0)
                 throw new InvalidOperationException("'operations' must be a non-empty array of {tool, args} objects.");
             bool continueOnError = args.ContainsKey("continue_on_error") && args["continue_on_error"] is bool c && c;
 
+            int mutatingOpCount = ops.Count(o =>
+            {
+                var d = o as Dictionary<string, object>;
+                string t = d != null ? Json.GetString(d, "tool") : null;
+                return t != null && Mutating.Contains(t);
+            });
+            int batchThreshold = AiconRoutineSettings.Load().BulkBatchOpThreshold;
+            ToolTier batchTier = mutatingOpCount > batchThreshold ? ToolTier.Bulk : ToolTier.Mutating;
+
             var results = new List<object>();
             int ok = 0, failed = 0;
+            // Deferred: a per-op audit-log write is only actually true once the WHOLE transaction
+            // commits — an all-or-nothing batch that fails partway rolls every earlier "successful" op
+            // back too, so logging them as they happen would leave a false record. Buffer here, flush
+            // only after InTransaction genuinely returns; on rollback, log one honest aggregate line
+            // instead (see the catch below).
+            var pendingLogs = new List<Action>();
 
-            return InTransaction(doc, "AICon: batch (" + ops.Count + " ops)", () =>
+            try
             {
-                for (int i = 0; i < ops.Count; i++)
+                object outcome = InTransaction(doc, "AICon: batch (" + ops.Count + " ops)", () =>
                 {
-                    var op = ops[i] as Dictionary<string, object>;
-                    string opTool = op != null ? Json.GetString(op, "tool") : null;
-                    if (string.IsNullOrEmpty(opTool))
-                        throw new InvalidOperationException("Operation " + (i + 1) + " is missing 'tool'.");
-                    if (NotBatchable.Contains(opTool))
-                        throw new InvalidOperationException("'" + opTool + "' cannot run inside batch — call it separately.");
+                    for (int i = 0; i < ops.Count; i++)
+                    {
+                        var op = ops[i] as Dictionary<string, object>;
+                        string opTool = op != null ? Json.GetString(op, "tool") : null;
+                        if (string.IsNullOrEmpty(opTool))
+                            throw new InvalidOperationException("Operation " + (i + 1) + " is missing 'tool'.");
+                        if (NotBatchable.Contains(opTool))
+                            throw new InvalidOperationException("'" + opTool + "' cannot run inside batch — call it separately.");
 
-                    try
-                    {
-                        object data = ExecuteCore(app, uidoc, doc, opTool, Json.GetDict(op, "args") ?? new Dictionary<string, object>());
-                        results.Add(new Dictionary<string, object> { { "op", i + 1 }, { "tool", opTool }, { "ok", true }, { "data", data } });
-                        ok++;
+                        Dictionary<string, object> opArgs = Json.GetDict(op, "args") ?? new Dictionary<string, object>();
+                        bool opMutating = Mutating.Contains(opTool);
+                        string preview = null;
+                        if (opMutating) { try { preview = BuildPreviewSummary(doc, opTool, opArgs); } catch { } }
+                        string batchLabel = "batch op " + (i + 1) + "/" + ops.Count;
+
+                        try
+                        {
+                            object data = ExecuteCore(app, uidoc, doc, opTool, opArgs, frontDoor);
+                            if (opMutating) AttachSummary(data, preview);
+                            results.Add(new Dictionary<string, object> { { "op", i + 1 }, { "tool", opTool }, { "ok", true }, { "data", data } });
+                            ok++;
+                            if (opMutating)
+                            {
+                                var ids = TryExtractIds(opArgs);
+                                pendingLogs.Add(() => AuditLog.Write(opTool, batchTier, frontDoor, preview, ids, true, null, batchLabel));
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            string message = ex.InnerException != null ? ex.InnerException.Message : ex.Message;
+                            failed++;
+                            results.Add(new Dictionary<string, object> { { "op", i + 1 }, { "tool", opTool }, { "ok", false }, { "error", message } });
+                            if (opMutating)
+                            {
+                                var ids = TryExtractIds(opArgs);
+                                pendingLogs.Add(() => AuditLog.Write(opTool, batchTier, frontDoor, preview, ids, false, message, batchLabel));
+                            }
+                            if (!continueOnError)
+                                throw new InvalidOperationException(
+                                    "Batch stopped at operation " + (i + 1) + " (" + opTool + "): " + message +
+                                    ". Nothing was committed (all-or-nothing). Fix the operation and resend, or use continue_on_error=true.");
+                        }
                     }
-                    catch (Exception ex)
+                    return new Dictionary<string, object>
                     {
-                        string message = ex.InnerException != null ? ex.InnerException.Message : ex.Message;
-                        failed++;
-                        results.Add(new Dictionary<string, object> { { "op", i + 1 }, { "tool", opTool }, { "ok", false }, { "error", message } });
-                        if (!continueOnError)
-                            throw new InvalidOperationException(
-                                "Batch stopped at operation " + (i + 1) + " (" + opTool + "): " + message +
-                                ". Nothing was committed (all-or-nothing). Fix the operation and resend, or use continue_on_error=true.");
-                    }
-                }
-                return new Dictionary<string, object>
-                {
-                    { "total", ops.Count },
-                    { "succeeded", ok },
-                    { "failed", failed },
-                    { "results", results }
-                };
-            });
+                        { "total", ops.Count },
+                        { "succeeded", ok },
+                        { "failed", failed },
+                        { "results", results }
+                    };
+                });
+
+                // Reached only if the transaction actually committed — every buffered entry really happened.
+                foreach (Action write in pendingLogs) write();
+                return outcome;
+            }
+            catch (Exception ex)
+            {
+                // The transaction rolled back (or never committed) — none of the buffered per-op
+                // entries above actually persisted, so one honest "nothing was kept" line beats a
+                // misleading trail of individually-logged "successes" that got undone.
+                if (mutatingOpCount > 0)
+                    AuditLog.Write("batch", batchTier, frontDoor, null, null, false,
+                        "rolled back, nothing committed: " + (ex.InnerException != null ? ex.InnerException.Message : ex.Message));
+                throw;
+            }
         }
 
         private static object InTransaction(Document doc, string name, Func<object> action)
@@ -242,6 +338,85 @@ namespace AICon
                     throw;
                 }
             }
+        }
+
+        // ---------- Preview layer: best-effort "what will this do" summaries ----------
+        // Informational only — computed before the transaction opens, attached to the result after it
+        // commits. Never blocks execution and must never throw into a real tool call (every caller
+        // wraps it in try/catch) — a preview glitch is not a reason to refuse a real, valid edit.
+
+        /// <summary>Groups resolved 'element_ids' by category ("12 Walls, 3 Doors") and adds a
+        /// tool-specific detail where cheap (move's vector, a new wall's length). Falls back to a
+        /// generic "will create a new X" sentence for create_* tools, which have no prior ids to
+        /// summarize. Returns null when there is nothing meaningful to say.</summary>
+        private static string BuildPreviewSummary(Document doc, string tool, Dictionary<string, object> args)
+        {
+            List<object> raw = Json.GetList(args, "element_ids");
+            if (raw != null && raw.Count > 0)
+            {
+                var counts = new Dictionary<string, int>();
+                foreach (object o in raw)
+                {
+                    Element e = doc.GetElement(ElementIdCompat.FromInt(Json.ToInt(o)));
+                    string cat = e != null && e.Category != null ? e.Category.Name : "unknown";
+                    counts[cat] = counts.TryGetValue(cat, out int c) ? c + 1 : 1;
+                }
+                string byCategory = string.Join(", ", counts.OrderByDescending(kv => kv.Value)
+                    .Select(kv => kv.Value + " " + kv.Key));
+
+                string verb = tool == "delete_elements" ? "delete"
+                    : tool == "move_elements" ? "move"
+                    : tool == "copy_elements" ? "copy"
+                    : tool == "rotate_elements" ? "rotate"
+                    : tool == "mirror_elements" ? "mirror"
+                    : "affect";
+                string detail = "";
+                if (tool == "move_elements" && args.ContainsKey("vector_mm"))
+                {
+                    try
+                    {
+                        XYZ v = VectorFromArg(args, "vector_mm");
+                        detail = string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                            " by ({0:0.#}, {1:0.#}, {2:0.#}) mm", FtToMm(v.X), FtToMm(v.Y), FtToMm(v.Z));
+                    }
+                    catch { }
+                }
+                return "Will " + verb + " " + raw.Count + " element(s): " + byCategory + detail + ".";
+            }
+
+            if (tool == "create_wall")
+            {
+                try
+                {
+                    XYZ start = PointFromArg(args, "start", 2);
+                    XYZ end = PointFromArg(args, "end", 2);
+                    double lenMm = FtToMm(start.DistanceTo(end));
+                    return string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "Will create 1 new wall, {0:0.#} mm long.", lenMm);
+                }
+                catch { return "Will create 1 new wall."; }
+            }
+            if (tool.StartsWith("create_", StringComparison.Ordinal))
+                return "Will create a new " + tool.Substring("create_".Length).Replace('_', ' ') + ".";
+
+            return null;
+        }
+
+        /// <summary>Adds a "summary" key to a Dictionary&lt;string,object&gt; result, if there is one to
+        /// add and it doesn't already have that key. Silently does nothing for a non-dictionary or null
+        /// result — this must never be the reason a real tool call fails.</summary>
+        private static void AttachSummary(object result, string summary)
+        {
+            if (summary == null) return;
+            var dict = result as Dictionary<string, object>;
+            if (dict != null && !dict.ContainsKey("summary")) dict["summary"] = summary;
+        }
+
+        /// <summary>Best-effort read of 'element_ids' for the audit log — never throws, may return null.</summary>
+        private static List<object> TryExtractIds(Dictionary<string, object> args)
+        {
+            try { return Json.GetList(args, "element_ids"); }
+            catch { return null; }
         }
 
         // ---------- read tools ----------

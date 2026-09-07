@@ -58,8 +58,20 @@ namespace AICon.Routines
             {
                 if (Steps == null || Steps.Count == 0) return "a composed routine needs at least one step.";
                 for (int i = 0; i < Steps.Count; i++)
+                {
                     if (Steps[i] == null || string.IsNullOrWhiteSpace(Steps[i].Tool))
                         return "step " + (i + 1) + " has no 'tool'.";
+                    // run_code is the one tool with a mandatory per-call confirmation gate (ToolTier
+                    // Unsandboxed — see ToolDispatcher.cs / ToolsExtended.cs's RunCode). A composed
+                    // routine is meant to run unattended from a ribbon button with nobody there to
+                    // answer that gate, so it may only call existing, already-reviewed tools. Use a
+                    // 'script' routine (compiled and reviewed once, at save time) if you need arbitrary
+                    // C# — see AUTHORING.md.
+                    if (string.Equals(Steps[i].Tool, "run_code", StringComparison.OrdinalIgnoreCase))
+                        return "step " + (i + 1) + ": composed routines may not call 'run_code' (it always " +
+                               "requires a live confirmation, which would stall an unattended routine run). " +
+                               "Use a 'script' routine instead if this step needs arbitrary C#.";
+                }
             }
             else if (IsScript)
             {
