@@ -9,7 +9,7 @@ You ─► AIConAgent ─► IProvider (local or cloud model)
                └────► Revit bridge (localhost:55234) ─► AICon add-in inside Revit
 ```
 
-Same 76 Revit tools as the Claude/MCP build — one shared `ToolRegistry` feeds both, so the two
+Same 77 Revit tools as the Claude/MCP build — one shared `ToolRegistry` feeds both, so the two
 paths never drift.
 
 ## How it connects
@@ -108,4 +108,4 @@ Anthropic slot is the obvious next addition.
 | `GeminiProvider.cs` | Google Gemini backend (generateContent + functionDeclarations) |
 | `RevitBridge.cs` | POST `{tool,args}` to `localhost:55234` |
 | `Config.cs` | `aiconagent.json` loading + key resolution |
-| `..\shared\ToolRegistry.cs` | the 76 tools — shared with the MCP server |
+| `..\shared\ToolRegistry.cs` | the 77 tools — shared with the MCP server |

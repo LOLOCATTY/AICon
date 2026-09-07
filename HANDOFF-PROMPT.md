@@ -36,7 +36,7 @@ Consequences:
 
 Three products in one add-in:
 
-**(a) An AI bridge for Revit.** ~76 Revit operations ("tools") — walls, sheets, views, schedules,
+**(a) An AI bridge for Revit.** 77 Revit operations ("tools") — walls, sheets, views, schedules,
 tags, filters, dimensions, exports, plus a `run_code` C# escape hatch — exposed to any LLM. Three
 front doors reach the same tool layer:
 
@@ -95,7 +95,7 @@ from the input list) · `RoutineCommands.cs` + `RoutineRibbonBuilder.cs` (ribbon
 `RoutineTools.cs` (the 4 MCP tools) · `AiconRoutineSettings.cs` (the code-execution switch).
 
 ### `shared/` — compiled into BOTH the add-in and the console host
-`ToolRegistry.cs` (**single source of truth** for the 76-tool catalogue + a reduced subset for small
+`ToolRegistry.cs` (**single source of truth** for the 77-tool catalogue + a reduced subset for small
 local models) · `Agent.cs` · `Provider.cs` / `ProviderFactory.cs` / `OpenAiCompatibleProvider.cs` /
 `GeminiProvider.cs` · `Config.cs` (`aiconagent.json`) · `FileTexts.cs` (dependency-free .xlsx reader).
 
