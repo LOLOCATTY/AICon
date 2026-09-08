@@ -4,7 +4,7 @@
 > It describes what AICon is, how it is built, exactly where development has got to, and the
 > non-obvious rules that were learned the hard way.
 >
-> **Current state: v3.2.0 · 2026-09-07 · Revit 2023–2027 (compiled; 2023/2024 live-verified,
+> **Current state: v3.2.3 · 2026-09-08 · Revit 2023–2027 (compiled; 2023/2024 live-verified,
 > 2025/2026/2027 compiled-only) · .NET Framework 4.8 (net48) + .NET 8 (net8.0-windows) + .NET 10
 > (net10.0-windows / net10.0-windows-2027)**
 
@@ -40,7 +40,12 @@ Three products in one add-in:
 tags, filters, dimensions, exports, plus a `run_code` C# escape hatch — exposed to any LLM. Three
 front doors reach the same tool layer:
 
-1. **Claude Desktop** over MCP (external stdio server → `localhost:55234` → the add-in).
+1. **Claude Desktop, or ChatGPT Desktop / Codex** — same external MCP stdio server
+   (`AIConServer.exe` → `localhost:55234` → the add-in), just two different MCP-client apps
+   `install.ps1` configures automatically (`claude_desktop_config.json` and `~/.codex/config.toml`
+   respectively). **Not** the same thing as ChatGPT's web/cloud "Connectors" feature, which needs a
+   remote HTTPS server and is out of scope — the desktop app is a local app like Claude Desktop, so
+   it can launch a local stdio server the same way.
 2. **A chat panel docked inside Revit** (Gemini / DeepSeek / local Ollama).
 3. **A console host** (`AIConAgent.exe`) for testing outside Revit.
 
@@ -224,6 +229,15 @@ Every `Mutating`/`Unsandboxed` tool call goes through a router → preview → l
     ours (an arg name our own prompt taught it; a missing single-call tool), not the model.
 13. **The `run_code` "angle brackets break" folklore is FALSE** — tested live; `List<T>`,
     `Dictionary<K,V>` and LINQ all work. Do not reintroduce `ArrayList` workarounds.
+14. **An em-dash (—) inside a `Write-Host "..."` string literal breaks `install.ps1` on Windows
+    PowerShell 5.1** — the script has no BOM, and without one the parser can misread the em-dash's
+    3-byte UTF-8 sequence (`E2 80 94`) under a non-UTF-8 codepage; one of those misread bytes happens
+    to look like a closing curly quote, silently truncating the string and cascading into a real
+    "missing terminator" parse error a few lines later — not a false positive, genuinely breaks the
+    script (caught before shipping, 2026-09-08). An em-dash inside a `#` comment is fine (comments
+    aren't tokenized as strings); only inside an actual string literal does it bite. Use a plain
+    hyphen (`-`) in any `Write-Host`/string-literal text instead — matches this file's own em-dash
+    convention in prose, just not inside PowerShell string literals.
 
 ---
 
@@ -279,6 +293,20 @@ and confirming a `run_code` step is rejected from a composed routine at save tim
   pattern window placement in the same batch call worked correctly.
 - `tag_elements` on a Room failed with "no loaded tag type" even though the project has hundreds of
   existing Room Tags — plausibly needs to `.Activate()` a `FamilySymbol` before first use in a session.
+
+**v3.2.3 (2026-09-08):** `scripts/install.ps1` now seeds `allowCodeExecution: true` into a fresh
+`%APPDATA%\AICon\routines.json` on install (only if that file doesn't already exist) — prompted by a
+colleague hitting the exact "set it to true by hand, still doesn't work, no idea why" confusion
+v3.1.3's error-message fix was meant to catch. New installs no longer need that manual edit at all;
+existing installs are untouched either way. **Also this version:** `install.ps1` now connects ChatGPT
+Desktop / Codex too (§2 explains why this is architecturally the same MCP server Claude Desktop
+already uses, not a new remote-server project), and a real em-dash-in-a-string-literal parse bug got
+caught and fixed before shipping (§7 item 14). **Confirmed live (2026-09-08):** after running the new
+installer, `aicon` shows up and is toggled ON under ChatGPT Desktop's own **Settings → Plugins → MCPs**
+tab, alongside Codex's built-in `node_repl` server — the registration genuinely works, not just in
+theory. **Still open:** an actual tool call through it (e.g. "What's in my Revit model?" from a real
+ChatGPT Desktop chat with Revit open) has not yet been confirmed end-to-end. Details: CHANGELOG.md's
+v3.2.3 entry.
 
 **Installed on this machine right now:** the 8 stock routines plus `model-qa-report` (script,
 read-only — one-click warnings/thin-tall-walls/room/mark/empty-sheet audit, built and proven this

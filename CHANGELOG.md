@@ -145,6 +145,42 @@ restart (it's a change to the add-in itself, same platform limit as always — s
 
 ---
 
+## v3.2.3 — 2026-09-08
+
+**`scripts/install.ps1` now seeds `allowCodeExecution: true` on a fresh install** (step [3/5],
+`%APPDATA%\AICon\routines.json`) — prompted by a colleague hitting exactly the class of confusion
+v3.1.3's `Load(out parseError)` fix was meant to catch: script Routines silently staying off with no
+clear reason why, needing a hand-edit of `routines.json` to fix. Rather than every new machine
+needing that same manual edit, `install.ps1` now writes `{"allowCodeExecution": true}` there itself —
+**only** when the file does not already exist, so a reinstall/update never overwrites a user's own
+later choice to turn it back off. `allowRunCode` is left unset in the seed on purpose — it already
+defaults to `true` in code, so there is nothing to seed for it.
+
+**`install.ps1` now also connects ChatGPT Desktop / Codex CLI automatically** (step [5/5]) —
+confusingly similar-sounding but architecturally unrelated to ChatGPT's web/cloud "Connectors"
+feature (which requires a remote HTTPS MCP server and is out of scope for AICon's local-only design).
+The **desktop app** shares one local config file with Codex CLI and its IDE extension,
+`%USERPROFILE%\.codex\config.toml`, and — like Claude Desktop — can launch a local stdio MCP server
+directly, so this needed no new server code, just an installer step that appends a
+`[mcp_servers.aicon]` block (TOML, not JSON — a **literal** `'...'` string so a Windows path's
+backslashes need no escaping) pointing at the same `AIConServer.exe` Claude Desktop already uses.
+Skips gracefully if `%USERPROFILE%\.codex` doesn't exist yet (app not installed — same pattern as the
+Claude Desktop step), and never touches an already-configured `[mcp_servers.aicon]` section or
+anything else already in the file. Steps renumbered [0/5]–[5/5] throughout the script to make room
+for both additions. [scripts/install.ps1](scripts/install.ps1)
+
+**Real bug caught before shipping, not just a style note:** an em-dash (—) inside a `Write-Host "..."`
+string literal breaks this script's parsing on Windows PowerShell 5.1 — the file has no BOM, and
+under a non-UTF-8 codepage one byte of the em-dash's 3-byte UTF-8 sequence is misread as a closing
+curly quote, silently truncating the string and cascading into a real syntax error a few lines later.
+An em-dash inside a `#` comment is fine (never tokenized as a string) — only a literal inside an
+actual string broke it. Fixed by using a plain hyphen in the three new `Write-Host` lines instead; see
+HANDOFF-PROMPT.md §7 item 14 for the full mechanism.
+
+Builds clean on all four targets. Packaged as `dist/AICon-3.2.3.zip`.
+
+---
+
 ## v3.1.3 — 2026-09-06
 
 ### Script-routine bug batch (external field report)

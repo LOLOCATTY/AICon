@@ -20,7 +20,7 @@ if (-not (Test-Path "$root\AICon.addin") -or -not (Test-Path "$root\server\AICon
 #        mark that makes Revit silently refuse to load the add-in DLL) ---
 try {
     Get-ChildItem $root -Recurse -File | Unblock-File -ErrorAction SilentlyContinue
-    Write-Host "  [0/3] Files unblocked (Windows download protection removed)." -ForegroundColor Green
+    Write-Host "  [0/5] Files unblocked (Windows download protection removed)." -ForegroundColor Green
 } catch { }
 
 # --- If Claude Desktop is running, it will overwrite our config on exit. Close it first. ---
@@ -138,7 +138,7 @@ if ($installedYears.Count -eq 0) {
     }
     exit 1
 }
-Write-Host "  [1/3] Revit add-in installed for: $($installedYears -join ', ')" -ForegroundColor Green
+Write-Host "  [1/5] Revit add-in installed for: $($installedYears -join ', ')" -ForegroundColor Green
 if ($unsupportedYears.Count -gt 0) {
     Write-Host "        Found Revit $($unsupportedYears -join ', ') too, but this AICon build does not support $(if ($unsupportedYears.Count -eq 1) {'it'} else {'them'}) yet." -ForegroundColor Yellow
 }
@@ -155,14 +155,34 @@ try {
 }
 Remove-Item "$serverDir\AIConServer.exe.old" -Force -ErrorAction SilentlyContinue
 Unblock-File "$serverDir\AIConServer.exe" -ErrorAction SilentlyContinue
-Write-Host "  [2/3] AICon server installed." -ForegroundColor Green
+Write-Host "  [2/5] AICon server installed." -ForegroundColor Green
 
-# --- 3) Claude Desktop configuration ---
+# --- 3) Routine settings: enable script Routines by default, but only on a FRESH machine ---
+# %APPDATA%\AICon\routines.json (AiconRoutineSettings.cs) is a per-user SETTINGS file — a completely
+# different location from the plugin folders step 1 wipes-and-recopies every install, so seeding it
+# here is a one-time default, never something a later reinstall/update stomps back on. Written ONLY
+# if the file does not already exist, so a colleague's own later choice (e.g. turning this back off)
+# is never silently overwritten. allowRunCode is left unset on purpose — it already defaults to true
+# in code, so there is nothing to seed there.
+$settingsDir = "$env:APPDATA\AICon"
+$settingsPath = "$settingsDir\routines.json"
+if (-not (Test-Path $settingsPath)) {
+    New-Item -ItemType Directory -Force $settingsDir | Out-Null
+    $defaultSettings = @{ allowCodeExecution = $true } | ConvertTo-Json
+    # Same BOM-free write as the Claude Desktop config below — a BOM here would break
+    # System.Text.Json the same way it breaks Claude Desktop's parser.
+    [IO.File]::WriteAllText($settingsPath, $defaultSettings, (New-Object System.Text.UTF8Encoding($false)))
+    Write-Host "  [3/5] Script Routines enabled by default (routines.json created)." -ForegroundColor Green
+} else {
+    Write-Host "  [3/5] Routine settings already exist - left untouched." -ForegroundColor Green
+}
+
+# --- 4) Claude Desktop configuration ---
 $configDir = "$env:APPDATA\Claude"
 $configPath = "$configDir\claude_desktop_config.json"
 $exe = "$serverDir\AIConServer.exe"
 if (-not (Test-Path $configDir)) {
-    Write-Host "  [3/3] Claude Desktop is not installed yet." -ForegroundColor Yellow
+    Write-Host "  [4/5] Claude Desktop is not installed yet." -ForegroundColor Yellow
     Write-Host "        Install it from https://claude.ai/download then run Setup.bat again."
 } else {
     if (Test-Path $configPath) {
@@ -186,7 +206,36 @@ if (-not (Test-Path $configDir)) {
     # and Claude Desktop's JSON parser rejects the file with "Unexpected token".
     $json = $config | ConvertTo-Json -Depth 32
     [IO.File]::WriteAllText($configPath, $json, (New-Object System.Text.UTF8Encoding($false)))
-    Write-Host "  [3/3] Claude Desktop connected to AICon." -ForegroundColor Green
+    Write-Host "  [4/5] Claude Desktop connected to AICon." -ForegroundColor Green
+}
+
+# --- 5) ChatGPT Desktop / Codex CLI configuration (shared ~/.codex/config.toml) ---
+# ChatGPT Desktop, Codex CLI, and the Codex IDE extension all read LOCAL stdio MCP servers from one
+# shared file, %USERPROFILE%\.codex\config.toml — same idea as the Claude Desktop config above, just
+# TOML instead of JSON. This is a DIFFERENT thing from ChatGPT's web/cloud "Connectors" (those need a
+# remote HTTPS server and are out of scope for AICon's local-only design) — this file only configures
+# the desktop app, which — like Claude Desktop — runs locally and can launch a local stdio process.
+$codexConfigDir = "$env:USERPROFILE\.codex"
+$codexConfigPath = "$codexConfigDir\config.toml"
+if (-not (Test-Path $codexConfigDir)) {
+    Write-Host "  [5/5] ChatGPT Desktop / Codex is not installed yet." -ForegroundColor Yellow
+    Write-Host "        Install it from https://chatgpt.com/download then run Setup.bat again."
+} else {
+    $existingToml = if (Test-Path $codexConfigPath) { Get-Content $codexConfigPath -Raw } else { "" }
+    if ($existingToml -match '(?m)^\s*\[mcp_servers\.aicon\]\s*$') {
+        Write-Host "  [5/5] ChatGPT Desktop / Codex already configured for AICon - left untouched." -ForegroundColor Green
+    } else {
+        # A TOML LITERAL string ('...') takes a Windows path exactly as written, backslashes and all —
+        # no escaping needed, unlike a TOML/JSON basic ("...") string. Appended, never replacing
+        # anything already in the file, so Codex's own settings and any other [mcp_servers.*] entries
+        # survive untouched.
+        $aiconToml = "[mcp_servers.aicon]`ncommand = '$exe'`n"
+        $newToml = if ($existingToml.Trim().Length -gt 0) { $existingToml.TrimEnd() + "`n`n" + $aiconToml } else { $aiconToml }
+        # Same no-BOM write as everywhere else in this script (see the Claude Desktop step above) —
+        # no reason to trust a TOML parser to be more forgiving of a BOM than Claude Desktop's was.
+        [IO.File]::WriteAllText($codexConfigPath, $newToml, (New-Object System.Text.UTF8Encoding($false)))
+        Write-Host "  [5/5] ChatGPT Desktop / Codex connected to AICon." -ForegroundColor Green
+    }
 }
 
 Write-Host ""
@@ -199,6 +248,6 @@ if ($revitRunning -or $lockedYears.Count -gt 0) {
 } else {
     Write-Host "   1. Start Revit -> click 'Always Load' when asked about AICon."
 }
-Write-Host "   2. Open Claude Desktop (it was configured automatically)."
+Write-Host "   2. Open Claude Desktop, or ChatGPT Desktop (Codex) - both configured automatically."
 Write-Host "   3. Open a Revit project and chat: 'What's in my Revit model?'"
 Write-Host ""
